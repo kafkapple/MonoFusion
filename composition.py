@@ -307,29 +307,7 @@ def main(cfgs: List[TrainConfig]):
                 validator.save_int_videos(epoch, all_interpolated_c2ws[iiidx])
                 validator.save_train_videos_images(epoch)
 
-
-
-        if (epoch > 0 and epoch % cfg.validate_every == 0) or (
-            epoch == cfg.num_epochs - 1
-        ):
-            for ind, validator in enumerate(validators):
-              val_logs = validator.validate()
-              metrics_str = "\n".join([f"{key}: {value}" for key, value in val_logs.items()])
-
-              with open(f"{cfg.work_dir}/validation_metrics_cam{ind}.txt", "a") as f:  
-                  f.write(f"Epoch {epoch}\n")
-                  f.write(metrics_str + "\n\n")
-
-    #####
-    #
-    #
-    validator.save_train_videos(cfgs[0].num_epochs)
-    for ind, validator in enumerate(validators):
-      val_logs = validator.validate()
-      metrics_str = "\n".join([f"{key}: {value}" for key, value in val_logs.items()])
-      with open(f"{cfg.work_dir}/validation_metrics_cam{ind}.txt", "a") as f:  
-          f.write(f"Epoch {cfgs[0].num_epochs}\n")
-          f.write(metrics_str + "\n\n")
+   
 
 def initialize_and_checkpoint_model(
     cfg: TrainConfig,

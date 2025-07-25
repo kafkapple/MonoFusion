@@ -219,7 +219,7 @@ class Trainer:
 
         self.log_dict(self.stats)
         self.global_step += 1
-        self.run_control_steps()
+        # self.run_control_steps()
 
         if self.viewer is not None:
             self.viewer.lock.release()

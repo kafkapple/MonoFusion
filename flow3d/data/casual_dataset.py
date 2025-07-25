@@ -1028,7 +1028,7 @@ class CasualDataset(BaseDataset):
           depth = torch.from_numpy(depth_map).float()
           input_tensor = depth.unsqueeze(0).unsqueeze(0) 
         except:
-          final_path = f"/data3/zihanwa3/Capstone-DSR/Appendix/dust3r/duster_depth_clean_300_testonly/{os.path.splitext(os.path.basename(path))[0]}/pc_depth_{os.path.basename(os.path.dirname(path))[-1]}.npy"
+          final_path = f"/data3/zihanwa3/Capstone-DSR/Processing{self.video_name}/dust_true_depth/{os.path.splitext(os.path.basename(path))[0]}/pc_depth_{int(os.path.basename(os.path.dirname(path))[-1])-1}.npy"
 
           disp_map =  np.load(final_path)#['depth']          
           depth_map = np.clip(disp_map, a_min=1e-8, a_max=1e6)

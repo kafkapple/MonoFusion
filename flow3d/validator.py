@@ -156,6 +156,12 @@ class Validator:
         if do_the_trick:
            self.model.bg.params['scales'] = do_the_trick *  self.model.bg.params['scales']
         #if no_fg:
+        '''fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_nus_cpr_08_1/_algo_depth'
+        fg_path = f"{fg_path}/checkpoints/last.ckpt"
+        ckpt_fg = torch.load(fg_path)["model"]
+        model_fg = SceneModel.init_from_state_dict(ckpt_fg)
+        self.model.fg = model_fg.fg'''
+
            
         self.device = device
         self.train_loader = train_loader
@@ -596,6 +602,11 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
+            if batch_idx == 0 or batch_idx == 47:
+              afasfafasfas=5
+            else:
+              continue
+
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -802,6 +813,10 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
+            if batch_idx == 0 or batch_idx == 47:
+              afasfafasfas=5
+            else:
+              continue
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -909,6 +924,11 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering 2D track video", leave=False)
         ):
+            if batch_idx == 0 or batch_idx == 47:
+              afasfafasfas=5
+            else:
+              continue
+
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -974,6 +994,11 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering motion coefficient video", leave=False)
         ):
+            if batch_idx == 0 or batch_idx == 47:
+              afasfafasfas=5
+            else:
+              continue
+
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -1048,6 +1073,11 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
+            if batch_idx == 0 or batch_idx == 47:
+              afasfafasfas=5
+            else:
+              continue
+
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -1209,6 +1239,11 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
+            if batch_idx == 0 or batch_idx == 47:
+              afasfafasfas=5
+            else:
+              continue
+
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -1330,6 +1365,10 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
+            if batch_idx == 0 or batch_idx == 47:
+              afasfafasfas=5
+            else:
+              continue
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()

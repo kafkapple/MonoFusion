@@ -8,4 +8,4 @@ EXP=$1
 # _nus_cpr_08_1
 
 ###  modest 
-python composition.py --seq_name '_iiith_cooking_123_2' --depth_type 'modest' --exp "$EXP"
+python composition.py --seq_name '_nus_cpr_08_1' --depth_type 'modest' --exp "$EXP"

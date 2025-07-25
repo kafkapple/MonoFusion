@@ -10,15 +10,15 @@ ts=$(date '+%m_%d_%H')     # e.g. May_07pm    # e.g. May_07pm
 
 # ---------- edit to taste ----------------------------------------------------
 seqs=(
-  #"_indiana_piano_14_4"
+  "_indiana_piano_14_4"
   "_nus_cpr_08_1"
-  #"_cmu_bike_74_7"
-  #"_mit_dance_02_12"
-  #"_cmu_soccer_07_3"
-  #"_iiith_cooking_123_2"
+  "_cmu_bike_74_7"
+  "_mit_dance_02_12"
+  "_cmu_soccer_07_3"
+  "_iiith_cooking_123_2"
 )
 
-gpus=(2 4)      # list *logical* GPU IDs you want to use
+gpus=(1 2 3 4 5 6)      # list *logical* GPU IDs you want to use
 # ---------------------------------------------------------------------------
 
 # optional safeguard: don’t launch more jobs than GPUs
@@ -30,14 +30,14 @@ fi
 for i in "${!seqs[@]}"; do
   seq="${seqs[$i]}"
   gpu="${gpus[$i]}"
-  EXP="__${ts}_${EXP_PREFIX}"      # keep runs distinct
+  EXP="${EXP_PREFIX}_${ts}"      # keep runs distinct
 
   echo "→ GPU $gpu │ $seq │ $EXP"
 
   CUDA_VISIBLE_DEVICES="$gpu" \
     python dance_glb.py \
       --seq_name  "$seq" \
-      --depth_type 'moge' \
+      --depth_type 'dust3r' \
       --exp        "$EXP" &             # ampersand → background job
 done
 

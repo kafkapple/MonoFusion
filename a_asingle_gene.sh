@@ -26,7 +26,7 @@ ts=$(date '+%b_%I%P' | sed 's/^0//')
 # Combine into full experiment name
 EXP="${EXP_PREFIX}_${ts}"
 
-SEQ_NAME="_mit_dance_02_12"
+SEQ_NAME="_iiith_cooking_123_2"
 
 python dance_glb.py \
    --seq_name  "$SEQ_NAME" \

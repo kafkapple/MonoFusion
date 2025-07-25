@@ -115,7 +115,7 @@ def init_bg(
     bg_scene_scale = torch.max(bg_max_scale - bg_min_scale).item() / 2.0
 
 
-    bg_max_scale = bg_points_centered.quantile(0.93, dim=0)
+    bg_max_scale = bg_points_centered.quantile(0.97, dim=0)
     bg_scene_scale = torch.mean(bg_max_scale).item()
 
 
@@ -124,17 +124,16 @@ def init_bg(
     dists, _ = knn(points.xyz, 3)
     dists = torch.from_numpy(dists)
     bg_scales = dists.mean(dim=-1, keepdim=True).clip(0, bg_scene_scale)
-    bg_scales = torch.full_like(bg_scales, bg_scales.median())
+    #bg_scales = torch.full_like(bg_scales, bg_scales.median())
+    #bg_scales.fill_(bg_scales.median()) 
+    # print(bg_scales.shape, 'bg_scales.shape')
+    C = 0.01                       # <-- example value
 
-    # Option 2: modify in-place
-    bg_scales.fill_(bg_scales.median())
+    # make a (N, 1) tensor filled with C on the same device & dtype as dists
+    #bg_scales = torch.full_like(dists[:, :1], C)
+    
 
-    print(bg_scales.shape)
-    bg_scales =  points.sizes[..., None]
-    print(bg_scales.shape)
-
-
-
+    bg_scales =  0.87*points.sizes[..., None]
     bkdg_scales = torch.log(bg_scales.repeat(1, 3))
 
     bg_means = points.xyz
@@ -168,7 +167,7 @@ def init_bg(
         params =  initialize_new_params(new_pt_cld)
         bg_means = params['means3D']
         bg_quats = params['unnorm_rotations']
-        bkdg_scales = params['log_scales']
+        bkdg_scales_ = params['log_scales']
         bkdg_colors = params['rgb_colors']
         bg_opacities = params['logit_opacities']
         bg_scene_center = bg_means.mean(0)
@@ -180,7 +179,7 @@ def init_bg(
         params = {k: torch.tensor(params[k]).cuda().float().requires_grad_(True) for k in params.keys()}
         bg_means = params['means3D']#[0]
         bg_quats = params['unnorm_rotations']#[0]
-        bkdg_scales = params['log_scales']
+        bkdg_scales_ = params['log_scales']
         bkdg_colors = params['rgb_colors'] #* 255#[0]
         bg_opacities = params['logit_opacities'][:, 0]
         bg_scene_center = bg_means.mean(0)

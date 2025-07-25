@@ -212,6 +212,22 @@ def main(cfgs: List[TrainConfig]):
         port=cfgs[0].port,
     )
 
+
+    ## trainer.model --> Scene Model
+    fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_nus_cpr_08_1/__05_16_02_0.87'
+    #fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_indiana_piano_14_4/_init_opt_63'
+    fg_path = f"{fg_path}/checkpoints/last.ckpt"
+    ckpt_fg = torch.load(fg_path)["model"]
+    model_fg = SceneModel.init_from_state_dict(ckpt_fg)
+    
+    model_fg = model_fg.to(device)
+
+
+    print(dir(trainer.model.fg))
+    #trainer.model.fg.params['opacities'] =  torch.logit(trainer.model.fg.params['opacities'] -  trainer.model.fg.params['opacities'])# model_fg.fg
+    trainer.model.bg = model_fg.bg
+
+
     validators = [
         Validator(
             model=trainer.model,
