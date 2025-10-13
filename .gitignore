@@ -1,13 +1,12 @@
-*.pth
-*.npy
-*.mp4
-outputs/
-work_dirs/
-*__pycache__*
-.vscode/
-.envrc
-.bak/
-datasets/
+# Ignore everything by default
+*
 
-preproc/checkpoints
-preproc/checkpoints/
+# But track these file types
+!*.sh
+!*.py
+
+# Don't ignore .gitignore itself
+!.gitignore
+
+# Don't ignore directories (so git can traverse them)
+!*/

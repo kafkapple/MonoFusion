@@ -37,7 +37,7 @@ for i in "${!seqs[@]}"; do
   CUDA_VISIBLE_DEVICES="$gpu" \
     python dance_glb.py \
       --seq_name  "$seq" \
-      --depth_type 'dust3r' \
+      --depth_type 'algo' \
       --exp        "$EXP" &             # ampersand → background job
 done
 

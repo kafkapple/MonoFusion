@@ -421,6 +421,7 @@ if __name__ == "__main__":
         if result_dict["pred_keypoints_3d"] is not None:
             epe, pck_3d_10cm, pck_3d_5cm = evaluate_3d_tracking(data_dict, result_dict)
             AJ, APCK, occ_acc = evaluate_2d_tracking(data_dict, result_dict)
+            
             epe_all.append(epe)
             pck_3d_10cm_all.append(pck_3d_10cm)
             pck_3d_5cm_all.append(pck_3d_5cm)

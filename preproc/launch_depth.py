@@ -24,7 +24,9 @@ def main(
             dev_id = gpus[i % len(gpus)]
             depth_name = depth_model.replace("-", "_")
             depth_dir = img_dir.replace(img_name, depth_name)
-            aligned_dir = img_dir.replace(img_name, f"aligned_{depth_name}")
+
+            
+            aligned_dir = img_dir.replace(img_name, f"aligned_{metric_name}_{depth_name}")
 
             ref_arg = ""
             if metric_name is not None:

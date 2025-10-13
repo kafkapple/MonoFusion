@@ -23,7 +23,39 @@ from flow3d.scene_model import SceneModel
 from flow3d.vis.utils import get_server
 from flow3d.vis.viewer import DynamicViewer
 
+def masked_mse_loss(input, target, mask, reduction='mean'):
+    """
+    Compute masked MSE loss.
+    
+    Args:
+        input: Predicted values (torch.Tensor)
+        target: Target values (torch.Tensor)
+        mask: Binary mask (torch.Tensor), 1 for valid positions, 0 for masked
+        reduction: 'mean', 'sum', or 'none'
+    
+    Returns:
+        torch.Tensor: Masked MSE loss
+    """
+    # Compute element-wise squared differences
+    squared_diff = (input - target) ** 2
+    
+    # Apply mask
+    masked_loss = squared_diff * mask
+    
+    if reduction == 'none':
+        return masked_loss
+    elif reduction == 'sum':
+        return masked_loss.sum()
+    elif reduction == 'mean':
+        # Mean over valid (non-masked) elements only
+        valid_elements = mask.sum()
+        if valid_elements == 0:
+            return torch.tensor(0.0, device=input.device, dtype=input.dtype)
+        return masked_loss.sum() / valid_elements
+    else:
+        raise ValueError(f"Invalid reduction mode: {reduction}")
 
+        
 class Trainer:
     def __init__(
         self,
@@ -346,7 +378,7 @@ class Trainer:
                     rendered_feats * valid_masks[..., None]
                     + (1.0 - valid_masks[..., None]) * bg_feats[:, None, None]
                 )
-                feat_loss = 0.8 * F.mse_loss(rendered_feats, feats) 
+                feat_loss = 0.8 * masked_mse_loss(rendered_feats, feats, valid_masks[..., None]) 
                 loss += feat_loss * self.losses_cfg.w_feat
 
 
@@ -390,6 +422,7 @@ class Trainer:
             )
             loss += mea_rgbbb
         ###### batch_Stat ##########
+        assert not batch_stat
         if batch_stat:
             B = len(batch_stat) * batch_stat[0]["imgs"].shape[0]
             W, H = img_wh = batch_stat[0]["imgs"].shape[2:0:-1]

@@ -4,6 +4,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 import tyro
 
+# metric_depth_name: str = "unidepth_disp",
 
 def main(
     img_dirs: list[str],

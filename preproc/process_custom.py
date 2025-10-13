@@ -68,22 +68,19 @@ def process_sequence(
         f"--out_raw_dir {mono_depth_dir} --out_aligned_dir {aligned_depth_dir} "
         f"--model {depth_model} --metric_dir {metric_depth_dir}"
     )
-    print(mono_depth_cmd)
-    subprocess.call(mono_depth_cmd, shell=True, executable="/bin/bash")
-
-    slam_cmd = (
-        f"{dev_arg} python recon_with_depth.py --img_dir {img_dir} "
-        f"--calib {intrins_name}.json --depth_dir {aligned_depth_dir} --out_path {slam_path}"
-    )
-    print(slam_cmd)
-    subprocess.call(slam_cmd, shell=True, executable="/bin/bash")
-
+    
+    # subprocess.call(mono_depth_cmd, shell=True, executable="/bin/bash")
+    # mask_dir = mask_dir.replace('/data3/zihanwa3/Capstone-DSR/shape-of-motion/data/masks/undist_cam0', 
+    #'/data3/zihanwa3/Capstone-DSR/Processing/dyn_mask/')
+    # return 
+    '''
     track_script = "compute_tracks_torch.py" if tapir_torch else "compute_tracks_jax.py"
     track_cmd = (
         f"{dev_arg} python {track_script} --image_dir {img_dir} "
         f"--mask_dir {mask_dir} --out_dir {track_dir} --model_type {track_model}"
     )
     subprocess.call(track_cmd, shell=True, executable="/bin/bash")
+    '''
 
 
 if __name__ == "__main__":

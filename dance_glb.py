@@ -80,16 +80,16 @@ class TrainBikeConfig:
     lr: SceneLRConfig
     loss: LossesConfig
     optim: OptimizerConfig
-    num_fg: int = 12_000
-    num_bg: int = 10_000
+    num_fg: int = 22_000
+    num_bg: int = 40_000
     num_motion_bases: int = 27
     num_epochs: int = 500
     port: int | None = None
     vis_debug: bool = False 
     batch_size: int = 8
     num_dl_workers: int = 4
-    validate_every: int = 40
-    save_videos_every: int = 20
+    validate_every: int = 100
+    save_videos_every: int = 100
     ignore_cam_mask: int = 0
     test_w2cs: str = ''
     seq_name: str = ''
@@ -565,6 +565,9 @@ def init_model_from_unified_tracks(
 if __name__ == "__main__":
     import wandb
     import argparse
+    import torch
+    torch.multiprocessing.set_sharing_strategy('file_system')
+
 
 
     parser = argparse.ArgumentParser(description="Wandb Training Script")

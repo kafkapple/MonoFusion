@@ -109,7 +109,7 @@ class Renderer:
         model_fg=None
         if do_my_trick:
            print('did the')
-           if 'pianoooo' in path:
+           '''if 'pianoooo' in path:
             fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_indiana_piano_14_4/_init_opt_63'
             fg_path = f"{fg_path}/checkpoints/last.ckpt"
             ckpt_fg = torch.load(fg_path)["model"]
@@ -126,9 +126,9 @@ class Renderer:
            if model_fg is None:
             model.bg = model.bg 
            else:
-            model.bg = model_fg.bg#.params
+            model.bg = model_fg.bg#.params'''
            model.fg.params['opacities'] =  (model.fg.params['opacities']) # torch.logit(model.fg.params['opacities'] -  model.fg.params['opacities'])
-           model.bg.params['scales'] =  0.99 * model.bg.params['scales']
+           #model.bg.params['scales'] =  0.99 * model.bg.params['scales']
 
 
         '''

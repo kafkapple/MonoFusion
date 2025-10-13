@@ -215,6 +215,9 @@ def main(cfgs: List[TrainConfig]):
 
     ## trainer.model --> Scene Model
     fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_nus_cpr_08_1/__05_16_02_0.87'
+
+    ## trainer.model --> Scene Model
+    fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_nus_cpr_08_1/_algo_depth'
     #fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_indiana_piano_14_4/_init_opt_63'
     fg_path = f"{fg_path}/checkpoints/last.ckpt"
     ckpt_fg = torch.load(fg_path)["model"]
@@ -222,10 +225,17 @@ def main(cfgs: List[TrainConfig]):
     
     model_fg = model_fg.to(device)
 
-
-    print(dir(trainer.model.fg))
     #trainer.model.fg.params['opacities'] =  torch.logit(trainer.model.fg.params['opacities'] -  trainer.model.fg.params['opacities'])# model_fg.fg
-    trainer.model.bg = model_fg.bg
+    fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_nus_cpr_08_1/_07_27_01'
+    #fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_indiana_piano_14_4/_init_opt_63'
+    fg_path = f"{fg_path}/checkpoints/last.ckpt"
+    ckpt_fg = torch.load(fg_path)["model"]
+    model_bg = SceneModel.init_from_state_dict(ckpt_fg).to(device)
+
+
+    #
+    trainer.model.bg = model_bg.bg
+    trainer.model.bg.params['scales'] =  1.0 * trainer.model.bg.params['scales']
 
 
     validators = [
@@ -237,7 +247,7 @@ def main(cfgs: List[TrainConfig]):
                 DataLoader(val_img_dataset, batch_size=110) 
             ),
             save_dir=os.path.join(cfgs[0].work_dir, f'cam_{i+1}'),
-            do_the_trick=0.97
+            do_the_trick=0.99
         )
         for i, (view, val_img_dataset) in enumerate(zip(train_video_views, val_img_datases))
     ]

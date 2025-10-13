@@ -215,29 +215,6 @@ class CasualDataset(BaseDataset):
           w2cs = np.array([df['w2c'][0][i] for i in cam_ids])
           # print(np.array(intrinsics).shape, np.array(w2cs).shape)
 
-          def matrix_to_pose(extrinsic):
-              """
-              Convert a 4x4 extrinsic matrix to [tx, ty, tz, qw, qx, qy, qz].
-              """
-              # Extract rotation (3×3) and translation (3×1)
-              rotation_matrix = extrinsic[:3, :3]
-              translation = extrinsic[:3, 3]
-              
-              # Convert rotation matrix to quaternion [x, y, z, w]
-              quat_xyzw = R.from_matrix(rotation_matrix).as_quat()
-              # By default, scipy returns [x, y, z, w]
-              qx, qy, qz, qw = quat_xyzw
-              
-              # Return in format [tx, ty, tz, qw, qx, qy, qz]
-              return [translation[0], translation[1], translation[2], 
-                      qw, qx, qy, qz]
-
-          # Example usage:
-          # Suppose w2cs is an ndarray of shape (N, 4, 4)
-          # w2cs[i] = the 4x4 extrinsic for camera i
-          # np.linalg.inv
-
-          # poses = [matrix_to_pose((w2cs[i])) for i in range(len(w2cs))]
 
           def k_to_intrinsics(k_matrix, image_width, image_height):
               """
@@ -765,6 +742,8 @@ class CasualDataset(BaseDataset):
         #  load_da2_depth load_duster_depth load_org_depth
         if self.depth_type == 'modest':
            depth = self.load_modest_depth(index)
+        elif self.depth_type == 'mogeS':
+           depth = self.load_opt_depth(index)
         elif self.depth_type == 'moge':
            depth = self.load_moge_depth(index)
         elif self.depth_type == 'algo':
@@ -895,6 +874,26 @@ class CasualDataset(BaseDataset):
         to_replace = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/data/aligned_depth_anything//'
 
         new_path = f'/data3/zihanwa3/Capstone-DSR/Appendix/MoGe/_aligned_preset_k_new_clean_'
+        path = path.replace('toy_512_', 'undist_cam')
+    
+        path = path.replace(to_replace, new_path)
+        path = path.replace('disp', 'frame')
+        path = path.replace(self.tgt_name+'_', self.tgt_name+'/')
+        depth_map = np.load(path)
+        # depth_map = np.clip(depth_map, a_min=1e-8, a_max=1e6)
+        depth = torch.from_numpy(depth_map).float()
+        input_tensor = depth.unsqueeze(0).unsqueeze(0) 
+
+        # If you want to remove the added dimensions
+        depth = input_tensor.squeeze(0).squeeze(0) 
+        return depth
+
+    def load_opt_depth(self, index) -> torch.Tensor:
+        path = f"{self.depth_dir}/disp_{int(self.frame_names[index])}.npy"
+        #print(self.depth_dir, path, int(self.frame_names[index]))
+        to_replace = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/data/aligned_depth_anything//'
+
+        new_path = f'/data3/zihanwa3/Capstone-DSR/Appendix/MoGe/_aligned_preset_k_toyJul26_'
         path = path.replace('toy_512_', 'undist_cam')
     
         path = path.replace(to_replace, new_path)

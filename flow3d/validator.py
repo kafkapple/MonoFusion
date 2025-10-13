@@ -1073,10 +1073,10 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
-            if batch_idx == 0 or batch_idx == 47:
+            '''if batch_idx == 0 or batch_idx == 47:
               afasfafasfas=5
             else:
-              continue
+              continue'''
 
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v

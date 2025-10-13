@@ -3,6 +3,7 @@ import glob
 import os
 
 import imageio
+import cv2
 import mediapy as media
 import numpy as np
 import torch
@@ -15,6 +16,28 @@ def read_video(folder_path):
     video = np.stack([imageio.imread(frame_path) for frame_path in frame_paths])
     print(f"{video.shape=} {video.dtype=} {video.min()=} {video.max()=}")
     video = media._VideoArray(video)
+    return video
+
+
+def read_video_npz(folder_path):
+    try:
+      frame_paths = sorted(glob.glob(os.path.join(folder_path, "*")))
+      print(frame_paths)
+      print(folder_path, np.load(frame_paths[0])['dyn_mask'].shape)
+
+      video = np.stack([cv2.resize((np.load(frame_path)['dyn_mask'][0]* 255).astype(np.uint8), (512, 288), interpolation=cv2.INTER_LINEAR)[np.newaxis, ...].astype(bool) for frame_path in frame_paths])
+      print(f"MMMMASK_{video.shape=} {video.dtype=} {video.min()=} {video.max()=}")
+      video = media._VideoArray(video)
+    except:
+      folder_path = folder_path.replace('/data3/zihanwa3/Capstone-DSR/shape-of-motion/data/masks/bike_undist_cam0',
+      '/data3/zihanwa3/Capstone-DSR/Processing/sam_v2_dyn_mask/')
+      frame_paths = sorted(glob.glob(os.path.join(folder_path, "*")))[49:350]
+      print(frame_paths)
+      print(folder_path, np.load(frame_paths[0])['dyn_mask'].shape)
+
+      video = np.stack([cv2.resize((np.load(frame_path)['dyn_mask'][0]* 255).astype(np.uint8), (3840, 2160), interpolation=cv2.INTER_LINEAR)[np.newaxis, ...].astype(bool) for frame_path in frame_paths])
+      print(f"MMMMASK_{video.shape=} {video.dtype=} {video.min()=} {video.max()=}")
+      video = media._VideoArray(video)
     return video
 
 
@@ -90,8 +113,15 @@ def main():
     grid_size = args.grid_size
 
     video = read_video(folder_path)
+
+
     num_frames, height, width = video.shape[0:3]
-    masks = read_video(mask_dir)
+
+    #try:
+    #  masks = read_video(mask_dir)
+    #  print('VIDEO SHAPE OF', masks.shape)
+    #except: 
+    masks = read_video_npz(mask_dir)[:]
     masks = (masks.reshape((num_frames, height, width, -1)) > 0).any(axis=-1)
     print(f"{video.shape=} {masks.shape=} {masks.max()=} {masks.sum()=}")
 

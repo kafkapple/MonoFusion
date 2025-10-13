@@ -6,7 +6,8 @@ import numpy as np
 import torch
 import tyro
 from tqdm import tqdm
-from unidepth.models import UniDepthV1
+from unidepth.models import UniDepthV2
+
 
 
 def run_model_inference(img_dir: str, depth_dir: str, intrins_file: str):
@@ -21,8 +22,13 @@ def run_model_inference(img_dir: str, depth_dir: str, intrins_file: str):
             f"found {len(img_files)} files in {depth_dir}, found {intrins_file}, skipping"
         )
         return
+    if 'unidepth_disp' in depth_dir:
+      model = UniDepthV1.from_pretrained("lpiccinelli/unidepth-v1-vitl14")
+    elif 'unidepth_v2_disp' in depth_dir:
+      model = UniDepthV2.from_pretrained("lpiccinelli/unidepth-v2-vits14") #UniDepthV1.from_pretrained("lpiccinelli/unidepth-v1-vitl14")
+    elif 'm3d_disp' in depth_dir:
+      model = torch.hub.load('yvanyin/metric3d', 'metric3d_vit_small', pretrain=True)
 
-    model = UniDepthV1.from_pretrained("lpiccinelli/unidepth-v1-vitl14")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     print("Torch version:", torch.__version__)
@@ -33,22 +39,17 @@ def run_model_inference(img_dir: str, depth_dir: str, intrins_file: str):
         img_name = os.path.splitext(img_file)[0]
         out_path = f"{depth_dir}/{img_name}.npy"
         img = iio.imread(f"{img_dir}/{img_file}")
-        pred_dict = run_model(model, img)
-        depth = pred_dict["depth"]
+
+        if 'm3d_disp' in depth_dir:
+          depth, _, _ = model.inference({'input': img})
+        else:
+          pred_dict = run_model(model, img)
+          depth = pred_dict["depth"]
         disp = 1.0 / np.clip(depth, a_min=1e-6, a_max=1e6)
         bar.set_description(f"Input {img_file} {depth.min()} {depth.max()}")
         np.save(out_path.replace("png", "npy"), disp.squeeze())
 
-        K = pred_dict["intrinsics"]
-        intrins_dict[img_name] = (
-            float(K[0, 0]),
-            float(K[1, 1]),
-            float(K[0, 2]),
-            float(K[1, 2]),
-        )
 
-    with open(intrins_file, "w") as f:
-        json.dump(intrins_dict, f, indent=1)
 
 
 def run_model(model, rgb: np.ndarray, intrinsics: np.ndarray | None = None):

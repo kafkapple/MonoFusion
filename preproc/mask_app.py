@@ -242,7 +242,9 @@ def compose_img_mask(img, color_mask, fac: float = 0.5):
 
 
 def listdir(vid_dir):
+    print(vid_dir, os.path.isdir(vid_dir))
     if vid_dir is not None and os.path.isdir(vid_dir):
+        print("was able to find the video dir but", os.listdir(vid_dir))
         return sorted(os.listdir(vid_dir))
     return []
 
@@ -514,4 +516,4 @@ if __name__ == "__main__":
         args.vid_name,
         args.img_name,
     )
-    demo.launch(server_port=args.port)
+    demo.launch(server_port=args.port, share=True)
