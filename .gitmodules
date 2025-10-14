@@ -7,3 +7,18 @@
 [submodule "preproc/UniDepth"]
 	path = preproc/UniDepth
 	url = https://github.com/lpiccinelli-eth/UniDepth.git
+[submodule "preproc/Dust3R"]
+	path = preproc/Dust3R
+	url = https://github.com/MonoFusion/Dust3R.git
+[submodule "preproc/MoGE"]
+	path = preproc/MoGE
+	url = https://github.com/MonoFusion/MoGE.git
+[submodule "preproc/DinoFeature"]
+	path = preproc/DinoFeature
+	url = https://github.com/MonoFusion/DinoFeature.git
+[submodule "AutoMask"]
+	path = AutoMask
+	url = https://github.com/CRISP-Real2Sim/AutoMask.git
+[submodule "preproc/AutoMask"]
+	path = preproc/AutoMask
+	url = https://github.com/CRISP-Real2Sim/AutoMask.git
