@@ -1,1 +1,0 @@
-python process_custom_depth.py --img-dirs /data3/zihanwa3/Capstone-DSR/shape-of-motion/data/images/** --metric_depth_name "unidepth_v2_disp" --gpus 0 1 2 3 4 5 7
