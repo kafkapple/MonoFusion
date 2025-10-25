@@ -3,7 +3,7 @@ from dataclasses import asdict, replace
 from torch.utils.data import Dataset
 
 from .base_dataset import BaseDataset
-from .casual_dataset import CasualDataset, CustomDataConfig, CasualDatasetVideoView, DavisDataConfig, EgoDataset, StatDataset
+from .casual_dataset import CasualDataset, CustomDataConfig, CasualDatasetVideoView#, DavisDataConfig, EgoDataset, StatDataset
 from .iphone_dataset import (
     iPhoneDataConfig,
     iPhoneDataset,
@@ -41,7 +41,7 @@ class SynchornizedDataset(Dataset):
 
 
 def get_train_val_datasets(
-    data_cfg: iPhoneDataConfig | DavisDataConfig | CustomDataConfig, load_val: bool
+    data_cfg: iPhoneDataConfig | CustomDataConfig, load_val: bool
 ) -> tuple[BaseDataset, Dataset | None, Dataset | None, Dataset | None]:
     train_video_view = None
     val_img_dataset = None
@@ -58,7 +58,7 @@ def get_train_val_datasets(
                 else None
             )
             val_kpt_dataset = iPhoneDatasetKeypointView(train_dataset)
-    elif isinstance(data_cfg, DavisDataConfig) or isinstance(
+    elif isinstance(
         data_cfg, CustomDataConfig
     ):
         data_cfg_dict = asdict(data_cfg)

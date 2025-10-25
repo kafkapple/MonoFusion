@@ -9,16 +9,6 @@ from loguru import logger as guru
 from flow3d.renderer import Renderer
 
 torch.set_float32_matmul_precision("high")
-# 
-# class SceneModel(nn.Module):
-#    def __init__(
-#        self,
-#        Ks: Tensor,
-#        w2cs: Tensor,
-#        fg_params: GaussianParams,
-#        motion_bases: MotionBases,
-#        bg_params: GaussianParams | None = None,
-#    ):
 
 @dataclass
 class RenderConfig:

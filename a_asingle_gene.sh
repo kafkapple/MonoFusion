@@ -1,16 +1,4 @@
 #! /usr/bin/env python
-###  modest , 
-#rm -rf /data3/zihanwa3/Capstone-DSR/shape-of-motion/output_duster_feature_rendering
-### _panoptic_softball
-### _panoptic_softball
-### 
-# "_iiith_cooking_123_2"
-# "_indiana_music_11_2"
-# "_nus_cpr_08_1"
-# "_unc_basketball_03-16-23_01_18"
-# "_cmu_soccer_07_3"
-# "_uniandes_ball_002_17"
-
 
 # "_indiana_piano_14_4"
 # _nus_cpr_08_1
@@ -26,7 +14,9 @@ ts=$(date '+%b_%I%P' | sed 's/^0//')
 # Combine into full experiment name
 EXP="${EXP_PREFIX}_${ts}"
 
-SEQ_NAME="_iiith_cooking_123_2"
+# indiana_piano_14_14
+# nus_cpr_08_1
+SEQ_NAME="_indiana_piano_14_14"
 
 python dance_glb.py \
    --seq_name  "$SEQ_NAME" \

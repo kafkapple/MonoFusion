@@ -3,23 +3,23 @@ from dataclasses import dataclass
 
 @dataclass
 class FGLRConfig:
-    means: float = 1.6e-4
+    means: float = 1.6e-3
     opacities: float = 1e-2
-    scales: float = 5e-3
+    scales: float = 5e-4
     quats: float = 1e-3
-    colors: float = 0
-    feats: float = 1e-3
+    colors: float = 1e-4
+    feats: float = 1e-4
     motion_coefs: float = 1e-3
 
 
 @dataclass
 class BGLRConfig:
-    means: float = 1.6e-4
+    means: float = 1.6e-9
     opacities: float = 1e-4
-    scales: float = 1e-4
-    quats: float = 1e-3
-    colors: float = 1e-4#1e-2
-    feats: float = 1-9# 1e-3
+    scales: float = 1e-6
+    quats: float = 1e-6
+    colors: float = 1e-7#1e-2
+    feats: float = 1e-15# 1e-3
 
 
 @dataclass
@@ -29,7 +29,7 @@ class BGLRGTConfig:
     scales: float = 1e-3
     quats: float = 1e-3
     colors: float = 1e-2
-    feats: float = 1e-3
+    feats: float = 1e-9
 
 @dataclass
 class MotionLRConfig:
@@ -46,12 +46,12 @@ class SceneLRConfig:
 @dataclass
 class LossesConfig:
     w_rgb: float = 5.0
-    w_feat: float = 0.00#3.0 #0.01
-    w_depth_reg: float = 1.0
+    w_feat: float = 1.5#3.0 #0.01
+    w_depth_reg: float = 1e-4
     w_depth_const: float = 0.000
     w_depth_grad: float = 0.0
     w_track: float = 2.0
-    w_mask: float = 3.0
+    w_mask: float = 7.0
     w_smooth_bases: float = 0.1
     w_smooth_tracks: float = 2.0
     w_scale_var: float = 0.01
@@ -107,7 +107,7 @@ class OptimizerConfigGT:
     stop_control_by_screen_steps: int = 4000
     stop_control_steps: int = 4000
     ### Densify.
-    densify_xys_grad_threshold: float = 0.0002# 0.0002 # 0.0002
+    densify_xys_grad_threshold: float = 0.0002# 0.0002 # 0002
     densify_scale_threshold: float = 0.01 
     #  should_split = is_grad_too_high & (is_scale_too_big | is_radius_too_big)
       #  should_dup = is_grad_too_high & ~is_scale_too_big

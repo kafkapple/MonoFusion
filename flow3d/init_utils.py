@@ -133,7 +133,7 @@ def init_bg(
     #bg_scales = torch.full_like(dists[:, :1], C)
     
 
-    bg_scales =  0.87*points.sizes[..., None]
+    bg_scales =  0.87 * points.sizes[..., None]
     bkdg_scales = torch.log(bg_scales.repeat(1, 3))
 
     bg_means = points.xyz
@@ -147,44 +147,6 @@ def init_bg(
         * (local_normals * points.normals).sum(-1, keepdim=True).acos_()
     ).roll(1, dims=-1)
     bg_opacities = torch.logit(torch.full((num_init_bg_gaussians,), 0.7))
-
-    init_w_pc = 2
-    '''if init_w_pc:
-      if seq_name == 'dance':
-        path = '/data3/zihanwa3/Capstone-DSR/Appendix/dust3r/duster_depth_clean_dance_512_4_duss_dec/1486/bg_pc.npz'
-      elif init_w_pc ==2:
-        path = '/data3/zihanwa3/Capstone-DSR/Dynamic3DGaussians/data_ego/cmu_bike/init_pt_cld.npz'
-        #path = '/data3/zihanwa3/Capstone-DSR/Appendix/dust3r/duster_depth_clean_300/118/bg_pc.npz'
-        new_pt_cld = np.load(path)["data"]
-        path = '/data3/zihanwa3/Capstone-DSR/Appendix/dust3r/duster_depth_clean_300/118/bg_pc.npz'
-        new_pt_cld_ = np.load(path)["data"]
-
-        print(new_pt_cld.shape, new_pt_cld_.shape)
-        new_pt_cld = np.concatenate((new_pt_cld, new_pt_cld_), axis=0)
-        print(new_pt_cld.shape, new_pt_cld_.shape)
-
-
-        params =  initialize_new_params(new_pt_cld)
-        bg_means = params['means3D']
-        bg_quats = params['unnorm_rotations']
-        bkdg_scales_ = params['log_scales']
-        bkdg_colors = params['rgb_colors']
-        bg_opacities = params['logit_opacities']
-        bg_scene_center = bg_means.mean(0)
-        bkdg_feats=torch.ones(bg_means.shape[0], 32)
-
-      elif init_w_pc ==3:
-        ckpt_path=f'/data3/zihanwa3/Capstone-DSR/Dynamic3DGaussians/old_output/4.9M/cmu_bike/params_iter_3000.npz'
-        params = dict(np.load(ckpt_path, allow_pickle=True))
-        params = {k: torch.tensor(params[k]).cuda().float().requires_grad_(True) for k in params.keys()}
-        bg_means = params['means3D']#[0]
-        bg_quats = params['unnorm_rotations']#[0]
-        bkdg_scales_ = params['log_scales']
-        bkdg_colors = params['rgb_colors'] #* 255#[0]
-        bg_opacities = params['logit_opacities'][:, 0]
-        bg_scene_center = bg_means.mean(0)
-        bkdg_feats=torch.ones(bg_means.shape[0], 32)'''
-
 
     gaussians = GaussianParams(
         bg_means,
@@ -265,7 +227,6 @@ def init_fg_motion_bases_from_single_t(
 
 ):
     device = tracks_3d.xyz.device
-    video_name = '_dance'
     num_frames = tracks_3d.xyz.shape[1]
     device = 'cuda'
     pose_matrices, intrinsics_matrices = get_data 
@@ -885,7 +846,7 @@ def sample_initial_bases_centers(
       vel_dirs = (
           velocities / (cp.linalg.norm(velocities, axis=-1, keepdims=True) + 1e-5)
       ).reshape((num_tracks, -1)) ## [N, (T-1) * 3] 
-      print(vel_dirs.shape) #(99149, 300)
+      # print(vel_dirs.shape) #(99149, 300)
       #print(feat_interp.shape)  #(99149, 101, 3)  
       # [num_bases, num_gaussians]
       if mode == "kmeans":

@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from flow3d.configs import LossesConfig, OptimizerConfig, SceneLRConfig
 from flow3d.data.utils import normalize_coords, to_device
-from flow3d.metrics import PCK, mLPIPS, mPSNR, mSSIM, mMDE, mIOU
+
 from flow3d.scene_model import SceneModel
 from flow3d.vis.utils import (
     apply_depth_colormap,
@@ -161,432 +161,13 @@ class Validator:
         ckpt_fg = torch.load(fg_path)["model"]
         model_fg = SceneModel.init_from_state_dict(ckpt_fg)
         self.model.fg = model_fg.fg'''
-
-           
         self.device = device
         self.train_loader = train_loader
         self.val_img_loader = val_img_loader
         self.val_kpt_loader = val_kpt_loader
         self.save_dir = save_dir
         self.has_bg = self.model.has_bg
-        #if 'dance' in save_dir:
-        path = '/data3/zihanwa3/Capstone-DSR/Processing_dance/3D/points.npy'
-        #else:
-        #  path = '/data3/zihanwa3/Capstone-DSR/Processing/3D/points.npy'
-            
-        self.glb_pc = np.load(path)
-
-        # metrics
-        self.ssim = SSIM(data_range=1.0, size_average=True, channel=3)
-        self.psnr_metric = mPSNR()
-        self.ssim_metric = mSSIM()
-        self.lpips_metric = mLPIPS().to(device)
-        self.fg_psnr_metric = mPSNR()
-        self.fg_ssim_metric = mSSIM()
-        self.fg_lpips_metric = mLPIPS().to(device)
-        self.bg_psnr_metric = mPSNR()
-        self.bg_ssim_metric = mSSIM()
-        self.bg_lpips_metric = mLPIPS().to(device)
-        self.pck_metric = PCK()
-
-        self.mde_metric = mMDE()
-        self.iou_metric = mIOU()
-
-    def reset_metrics(self):
-        self.psnr_metric.reset()
-        self.ssim_metric.reset()
-        self.lpips_metric.reset()
-        self.fg_psnr_metric.reset()
-        self.fg_ssim_metric.reset()
-        self.fg_lpips_metric.reset()
-        self.bg_psnr_metric.reset()
-        self.bg_ssim_metric.reset()
-        self.bg_lpips_metric.reset()
-        self.pck_metric.reset()
-
-        self.mde_metric.reset()
-        self.iou_metric.reset()
-
-    @torch.no_grad()
-    def validate(self):
-        self.reset_metrics()
-        metric_imgs = self.validate_imgs() #or {}
-        return {**metric_imgs}
-
-
-    @torch.no_grad()
-    def validate_NTS(self):
-        self.reset_metrics()
-        metric_imgs = self.validate_NTS_() #or {}
-        return {**metric_imgs}
-
-
-
-
-    def validate_outer_imgs(self,cam_idx, t_idx, t_base, base_path=None):
-        self.reset_metrics()
-        metric_imgs = self.validate_outer_img(cam_idx, t_idx, t_base=t_base, base_path=base_path) #or {}
-        return {**metric_imgs}
     
-
-
-
-    @torch.no_grad()
-    def validate_NTS_(self):
-        
-        for batch_idx, batch in enumerate(
-            tqdm(self.val_img_loader, desc="Rendering video", leave=False)
-        ):     
-            batch = {
-                k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
-
-            for batch_idx in range(0, len(batch["ts"])-3, 3):
-              print('ggggg')            
-              batch = {
-                  k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                  for k, v in batch.items()
-              }
-              # ().
-
-              t = batch["ts"][batch_idx]
-              t_2 = batch["ts"][batch_idx+2]
-              # (4, 4).
-              w2c = batch["w2cs"][batch_idx]
-              # (3, 3).
-              K = batch["Ks"][batch_idx]
-              # (H, W, 3).
-              img = batch["imgs"][batch_idx+1]
-              # (H, W).
-              depth = batch["depths"][batch_idx+1]
-              
-              mask = (batch["masks"][batch_idx+1]).float()
-
-              img_wh = img.shape[-2::-1]
-
-              glb_pc = self.glb_pc
-
-
-
-              #self.glb_pc = 
-              frame_name = batch["frame_names"][0]
-
-              valid_mask = batch.get(
-                  "valid_masks", torch.ones_like(batch["imgs"][..., 0])
-              )
-              # (1, H, W).
-              fg_mask = batch["masks"]
-
-              # (H, W).
-              covisible_mask = batch.get(
-                  "covisible_masks",
-                  torch.ones_like(fg_mask),
-              )
-              rendered = self.model.render_crossT(
-                  t, t_2, w2c[None], K[None], img_wh, return_depth=True, return_mask=True
-              )
-              #WITHOUT 0 orch.Size([1, 288, 512, 3]) torch.Size([1, 288, 512]) torch.Size([1, 1, 288, 512]) torch.Size([1, 288, 512])   
-              #WITH 0 orch.Size([1, 288, 512, 3]) torch.Size([1, 288, 512]) torch.Size([1, 288, 512]) torch.Size([288, 512]) 
-              # print(rendered["img"].shape, valid_mask.shape, covisible_mask.shape, fg_mask.shape)
-              valid_mask *= covisible_mask
-              fg_valid_mask = fg_mask * valid_mask
-              bg_valid_mask = (1 - fg_mask) * valid_mask
-              main_valid_mask = valid_mask if self.has_bg else fg_valid_mask
-              fg_valid_mask = fg_valid_mask[batch_idx+1][None, ...]
-              bg_valid_mask = bg_valid_mask[batch_idx+1][None, ...]
-
-
-              self.mde_metric.update(
-                  img, w2c, K, depth, mask, glb_pc, img_wh
-              )
-              # torch.Size([101, 288, 512]) torch.Size([1, 288, 512, 3]) torch.Size([1, 288, 512, 1])
-              #print(mask.shape, rendered["mask"].shape)
-              # torch.Size([288, 512]) torch.Size([1, 288, 512, 1])
-              
-
-              rd_mask = rendered['mask'].squeeze(0).squeeze(-1)
-
-              #rd_mask = (rd_mask > 0.9).float()
-              print(batch["masks"][batch_idx].max(), batch["masks"][batch_idx].min(),
-                    rd_mask.max(), rd_mask.min())
-              self.iou_metric.update(
-                  rd_mask, fg_valid_mask
-              )
-              main_valid_mask = torch.ones_like(mask)[None, ...]
-
-              img=img[None, ...]
-              self.psnr_metric.update(rendered["img"], img, main_valid_mask)
-              self.ssim_metric.update(rendered["img"], img, main_valid_mask)
-              self.lpips_metric.update(rendered["img"], img, main_valid_mask)
-
-              if self.has_bg:
-                  self.fg_psnr_metric.update(rendered["img"], img, fg_valid_mask)
-                  self.fg_ssim_metric.update(rendered["img"], img, fg_valid_mask)
-                  self.fg_lpips_metric.update(rendered["img"], img, fg_valid_mask)
-                  self.bg_psnr_metric.update(rendered["img"], img, bg_valid_mask)
-                  self.bg_ssim_metric.update(rendered["img"], img, bg_valid_mask)
-                  self.bg_lpips_metric.update(rendered["img"], img, bg_valid_mask)
-
-              # Dump results.
-              results_dir = osp.join(self.save_dir, "results", "rgb")
-              os.makedirs(results_dir, exist_ok=True)
-              iio.imwrite(
-                  osp.join(results_dir, f"{frame_name}.png"),
-                  (rendered["img"][0].cpu().numpy() * 255).astype(np.uint8),
-              )
-
-        return {
-            "val/psnr": self.psnr_metric.compute(),
-            "val/ssim": self.ssim_metric.compute(),
-            "val/lpips": self.lpips_metric.compute(),
-            "val/fg_psnr": self.fg_psnr_metric.compute(),
-            "val/fg_ssim": self.fg_ssim_metric.compute(),
-            "val/fg_lpips": self.fg_lpips_metric.compute(),
-            "val/bg_psnr": self.bg_psnr_metric.compute(),
-            "val/bg_ssim": self.bg_ssim_metric.compute(),
-            "val/bg_lpips": self.bg_lpips_metric.compute(),
-            "val/mde": self.mde_metric.compute(),
-            "val/iou": self.iou_metric.compute()
-        }
-
-    @torch.no_grad()
-    def validate_outer_img(self, cam_idx, t_idx, t_base, base_path):
-        guru.info("rendering validation images...")
-
-        print(len(self.val_img_loader))
-        if self.val_img_loader is None:
-            return
-
-        # for batch in tqdm(self.val_img_loader, desc="render val images"):
-        for batch_idx, batch in enumerate(
-            tqdm(self.val_img_loader, desc="Rendering video", leave=False)
-        ):     
-            batch = {
-                k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
-
-            for batch_idx in range(0, len(batch["ts"]), 3):
-              
-              t = batch["ts"][batch_idx]
-              print(t)
-
-
-              ########
-              ### LOAD TS
-              #/data3/zihanwa3/Capstone-DSR/Appendix/dust3r/duster_depth_clean_dance_512_4_mons_cp_newgraph/
-              #1477/pc_proj_img_0.png
-              img_path = f'/data3/zihanwa3/Capstone-DSR/Dynamic3DGaussians/cvpr_results/int_images/frame_000{cam_idx}.png'#osp.join(base_path, str(t.item() + t_base), f'pc_proj_img_{cam_idx}.png')
-              loaded_img =torch.from_numpy(iio.imread(img_path)).float() / 255.0
-
-              mask_path = osp.join(base_path, str(t.item() + t_base), f'fg_depth_{cam_idx}.npy')
-
-              #ask = torch.from_numpy(np.load(mask_path)) > 0.8
-              #fg_mask = mask.reshape((*mask.shape[:2], -1)).max(axis=-1) > 0
-              rendered = {
-                  'img': loaded_img.cuda()[None, ...],
-                  #'mask': mask[None, ...][..., None].cuda()
-              }               
-              
-              ########
-              # (4, 4).
-              w2c = batch["w2cs"][batch_idx]
-              # (3, 3).
-              K = batch["Ks"][batch_idx]
-              # (H, W, 3).
-              img = batch["imgs"][batch_idx]
-              # (H, W).
-              depth = batch["depths"][batch_idx]
-              
-              mask = (batch["masks"][batch_idx]).float()
-
-              img_wh = img.shape[-2::-1]
-
-              glb_pc = self.glb_pc
-
-              frame_name = batch["frame_names"][0]
-
-              valid_mask = batch.get(
-                  "valid_masks", torch.ones_like(batch["imgs"][..., 0])
-              )
-              # (1, H, W).
-              fg_mask = batch["masks"]
-
-              # (H, W).
-              covisible_mask = batch.get(
-                  "covisible_masks",
-                  torch.ones_like(fg_mask),
-              )
-
-
-              valid_mask *= covisible_mask
-              fg_valid_mask = fg_mask * valid_mask
-              bg_valid_mask = (1 - fg_mask) * valid_mask
-              main_valid_mask = valid_mask if self.has_bg else fg_valid_mask
-              fg_valid_mask = fg_valid_mask[batch_idx][None, ...]
-              bg_valid_mask = bg_valid_mask[batch_idx][None, ...]
-
-
-              self.mde_metric.update(
-                  img, w2c, K, depth, mask, glb_pc, img_wh
-              )
-              rd_mask =  fg_valid_mask# rendered['mask'].squeeze(0).squeeze(-1)
-
-              self.iou_metric.update(
-                  rd_mask, fg_valid_mask
-              )
-              main_valid_mask = torch.ones_like(mask)[None, ...]
-
-              img=img[None, ...]
-              print(rendered['img'].shape, img.shape)
-              self.psnr_metric.update(rendered["img"], img, main_valid_mask)
-              self.ssim_metric.update(rendered["img"], img, main_valid_mask)
-              self.lpips_metric.update(rendered["img"], img, main_valid_mask)
-
-              if self.has_bg:
-                  self.fg_psnr_metric.update(rendered["img"], img, fg_valid_mask)
-                  self.fg_ssim_metric.update(rendered["img"], img, fg_valid_mask)
-                  self.fg_lpips_metric.update(rendered["img"], img, fg_valid_mask)
-              results_dir = osp.join(self.save_dir, "results", "rgb")
-              os.makedirs(results_dir, exist_ok=True)
-
-        return {
-            "val/psnr": self.psnr_metric.compute(),
-            "val/ssim": self.ssim_metric.compute(),
-            "val/lpips": self.lpips_metric.compute(),
-            "val/fg_psnr": self.fg_psnr_metric.compute(),
-            "val/fg_ssim": self.fg_ssim_metric.compute(),
-            "val/fg_lpips": self.fg_lpips_metric.compute(),
-            "val/mde": self.mde_metric.compute(),
-            "val/iou": self.iou_metric.compute()
-        }
-    @torch.no_grad()
-    def validate_end(self):
-        self.reset_metrics()
-        metric_imgs = self.validate_trainview() or {}
-        return {**metric_imgs}
-
-    @torch.no_grad()
-    def validate_imgs(self):
-        guru.info("rendering validation images...")
-
-        print(len(self.val_img_loader))
-        if self.val_img_loader is None:
-            return
-
-        # for batch in tqdm(self.val_img_loader, desc="render val images"):
-        for batch_idx, batch in enumerate(
-            tqdm(self.val_img_loader, desc="Rendering video", leave=False)
-        ):
-            print('ggggg')            
-            batch = {
-                k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
-            # ().
-            print(batch["ts"])
-            for batch_idx in range(0, len(batch["ts"]), 5):
-              t = batch["ts"][batch_idx]
-              # (4, 4).
-              w2c = batch["w2cs"][batch_idx]
-              # (3, 3).
-              K = batch["Ks"][batch_idx]
-              # (H, W, 3).
-              img = batch["imgs"][batch_idx]
-              # (H, W).
-              depth = batch["depths"][batch_idx]
-              
-              mask = (batch["masks"][batch_idx]).float()
-
-              img_wh = img.shape[-2::-1]
-
-              glb_pc = self.glb_pc
-
-
-
-              #self.glb_pc = 
-              frame_name = batch["frame_names"][0]
-
-              valid_mask = batch.get(
-                  "valid_masks", torch.ones_like(batch["imgs"][..., 0])
-              )
-              # (1, H, W).
-              fg_mask = batch["masks"]
-
-              # (H, W).
-              covisible_mask = batch.get(
-                  "covisible_masks",
-                  torch.ones_like(fg_mask),
-              )
-              rendered = self.model.render(
-                  t, w2c[None], K[None], img_wh, return_depth=True, return_mask=True
-              )
-              #WITHOUT 0 orch.Size([1, 288, 512, 3]) torch.Size([1, 288, 512]) torch.Size([1, 1, 288, 512]) torch.Size([1, 288, 512])   
-              #WITH 0 orch.Size([1, 288, 512, 3]) torch.Size([1, 288, 512]) torch.Size([1, 288, 512]) torch.Size([288, 512]) 
-              # print(rendered["img"].shape, valid_mask.shape, covisible_mask.shape, fg_mask.shape)
-              valid_mask *= covisible_mask
-              fg_valid_mask = fg_mask * valid_mask
-              bg_valid_mask = (1 - fg_mask) * valid_mask
-              main_valid_mask = valid_mask if self.has_bg else fg_valid_mask
-              fg_valid_mask = fg_valid_mask[batch_idx][None, ...]
-              bg_valid_mask = bg_valid_mask[batch_idx][None, ...]
-
-
-              self.mde_metric.update(
-                  img, w2c, K, depth, mask, glb_pc, img_wh
-              )
-              # torch.Size([101, 288, 512]) torch.Size([1, 288, 512, 3]) torch.Size([1, 288, 512, 1])
-              #print(mask.shape, rendered["mask"].shape)
-              # torch.Size([288, 512]) torch.Size([1, 288, 512, 1])
-              
-
-              rd_mask = rendered['mask'].squeeze(0).squeeze(-1)
-
-              #rd_mask = (rd_mask > 0.9).float()
-              print(batch["masks"][batch_idx].max(), batch["masks"][batch_idx].min(),
-                    rd_mask.max(), rd_mask.min())
-              self.iou_metric.update(
-                  rd_mask, fg_valid_mask
-              )
-              main_valid_mask = torch.ones_like(mask)[None, ...]
-
-              img=img[None, ...]
-              self.psnr_metric.update(rendered["img"], img, main_valid_mask)
-              self.ssim_metric.update(rendered["img"], img, main_valid_mask)
-              self.lpips_metric.update(rendered["img"], img, main_valid_mask)
-
-              if self.has_bg:
-                  self.fg_psnr_metric.update(rendered["img"], img, fg_valid_mask)
-                  self.fg_ssim_metric.update(rendered["img"], img, fg_valid_mask)
-                  self.fg_lpips_metric.update(rendered["img"], img, fg_valid_mask)
-                  self.bg_psnr_metric.update(rendered["img"], img, bg_valid_mask)
-                  self.bg_ssim_metric.update(rendered["img"], img, bg_valid_mask)
-                  self.bg_lpips_metric.update(rendered["img"], img, bg_valid_mask)
-
-              # Dump results.
-              results_dir = osp.join(self.save_dir, "results", "rgb")
-              os.makedirs(results_dir, exist_ok=True)
-              iio.imwrite(
-                  osp.join(results_dir, f"{frame_name}.png"),
-                  (rendered["img"][0].cpu().numpy() * 255).astype(np.uint8),
-              )
-
-        return {
-            "val/psnr": self.psnr_metric.compute(),
-            "val/ssim": self.ssim_metric.compute(),
-            "val/lpips": self.lpips_metric.compute(),
-            "val/fg_psnr": self.fg_psnr_metric.compute(),
-            "val/fg_ssim": self.fg_ssim_metric.compute(),
-            "val/fg_lpips": self.fg_lpips_metric.compute(),
-            "val/bg_psnr": self.bg_psnr_metric.compute(),
-            "val/bg_ssim": self.bg_ssim_metric.compute(),
-            "val/bg_lpips": self.bg_lpips_metric.compute(),
-            "val/mde": self.mde_metric.compute(),
-            "val/iou": self.iou_metric.compute()
-        }
-
-
     @torch.no_grad()
     def save_train_videos(self, epoch: int):
         if self.train_loader is None:
@@ -602,11 +183,6 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
-            if batch_idx == 0 or batch_idx == 47:
-              afasfafasfas=5
-            else:
-              continue
-
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -813,10 +389,6 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
-            if batch_idx == 0 or batch_idx == 47:
-              afasfafasfas=5
-            else:
-              continue
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                 for k, v in batch.items()
@@ -924,10 +496,6 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering 2D track video", leave=False)
         ):
-            if batch_idx == 0 or batch_idx == 47:
-              afasfafasfas=5
-            else:
-              continue
 
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
@@ -994,10 +562,6 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering motion coefficient video", leave=False)
         ):
-            if batch_idx == 0 or batch_idx == 47:
-              afasfafasfas=5
-            else:
-              continue
 
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
@@ -1048,18 +612,6 @@ class Validator:
         print(f"Saving videos to {video_dir} and images to {image_dir}")
 
         fps = 15.0
-        # Render video.
-
-        self.pc_dict = {
-          'bike': ['/data3/zihanwa3/Capstone-DSR/Processing/dinov2features/', 111],
-          'dance': ['/data3/zihanwa3/Capstone-DSR/Processing_dance/dinov2features/', 100],
-        }
-        seq_name = 'bike'
-        self.data_path = self.pc_dict[seq_name][0]
-        self.seq_name = seq_name
-
-        with open(self.data_path+'fitted_pca_model.pkl', 'rb') as f:
-          self.feat_base = pickle.load(f)
 
 
         video = []
@@ -1073,10 +625,7 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
-            '''if batch_idx == 0 or batch_idx == 47:
-              afasfafasfas=5
-            else:
-              continue'''
+
 
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
@@ -1142,25 +691,6 @@ class Validator:
               combined_img = torch.cat([img, rendered["img"][0]], dim=1).cpu()
 
               video.append(combined_img)
-              feat = rendered["feat"][0]
-              pca_features = self.feat_base.transform(feat.cpu().numpy().reshape(-1, 32))
-
-              pca_features_norm = (pca_features - pca_features.min()) / (pca_features.max() - pca_features.min())
-              pca_features_norm = (pca_features_norm * 255).astype(np.uint8)
-              
-              # Reconstruct full image
-              full_pca_features = np.zeros((pca_features.shape[0], 3), dtype=np.uint8)
-              #if mask is not None:
-              #    full_pca_features[mask_flat] = pca_features_norm
-              #else:
-              full_pca_features = pca_features_norm
-              pca_features_image = full_pca_features.reshape(feat.shape[0], feat.shape[1], 3)
-              
-              video_dino.append(torch.from_numpy(pca_features_image))
-
-
-
-
 
               ref_pred_depth = rendered["depth"][0].cpu()
               ref_pred_depths.append(ref_pred_depth)
@@ -1174,12 +704,6 @@ class Validator:
               iio.imwrite(
                   image_path,
                   (combined_img.numpy() * 255).astype(np.uint8)
-              )
-
-              feat_path = osp.join(feat_dir, f"frame_{batch_idx:04d}.png")
-              iio.imwrite(
-                  feat_path,
-                  (pca_features_image).astype(np.uint8)
               )
 
 
@@ -1219,16 +743,7 @@ class Validator:
         fps = 15.0
         # Render video.
 
-        self.pc_dict = {
-          'bike': ['/data3/zihanwa3/Capstone-DSR/Processing/dinov2features/', 111],
-          'dance': ['/data3/zihanwa3/Capstone-DSR/Processing_dance/dinov2features/', 100],
-        }
-        seq_name = 'bike'
-        self.data_path = self.pc_dict[seq_name][0]
-        self.seq_name = seq_name
 
-        with open(self.data_path+'fitted_pca_model.pkl', 'rb') as f:
-          self.feat_base = pickle.load(f)
 
 
         video = []
@@ -1239,10 +754,6 @@ class Validator:
         for batch_idx, batch in enumerate(
             tqdm(self.train_loader, desc="Rendering video", leave=False)
         ):
-            if batch_idx == 0 or batch_idx == 47:
-              afasfafasfas=5
-            else:
-              continue
 
             batch = {
                 k: v.to(self.device) if isinstance(v, torch.Tensor) else v
@@ -1263,21 +774,7 @@ class Validator:
             combined_img = torch.cat([img, rendered["img"][0]], dim=1).cpu()
 
             video.append(combined_img)
-            feat = rendered["feat"][0]
-            pca_features = self.feat_base.transform(feat.cpu().numpy().reshape(-1, 32))
 
-            pca_features_norm = (pca_features - pca_features.min()) / (pca_features.max() - pca_features.min())
-            pca_features_norm = (pca_features_norm * 255).astype(np.uint8)
-            
-            # Reconstruct full image
-            full_pca_features = np.zeros((pca_features.shape[0], 3), dtype=np.uint8)
-            #if mask is not None:
-            #    full_pca_features[mask_flat] = pca_features_norm
-            #else:
-            full_pca_features = pca_features_norm
-            pca_features_image = full_pca_features.reshape(feat.shape[0], feat.shape[1], 3)
-            
-            video_dino.append(torch.from_numpy(pca_features_image))
 
 
 
@@ -1297,11 +794,6 @@ class Validator:
                 (combined_img.numpy() * 255).astype(np.uint8)
             )
 
-            feat_path = osp.join(feat_dir, f"frame_{batch_idx:04d}.png")
-            iio.imwrite(
-                feat_path,
-                (pca_features_image).astype(np.uint8)
-            )
 
 
             # Save depth images
@@ -1322,279 +814,3 @@ class Validator:
                     mask_image_path,
                     (mask_image.numpy() * 255).astype(np.uint8)
                 )
-
-
-    @torch.no_grad()
-    def save_int_videos_up(self, epoch: int, w2c, nnvs=''):
-        if self.train_loader is None:
-            return
-        # Directories for videos
-        video_dir = osp.join(self.save_dir, f"int_videos{nnvs}", f"epoch_{epoch:04d}")
-        os.makedirs(video_dir, exist_ok=True)
-
-        # Directories for images
-        image_dir = osp.join(self.save_dir, f"int_images{nnvs}", f"epoch_{epoch:04d}")
-        os.makedirs(image_dir, exist_ok=True)
-
-        feat_dir = osp.join(self.save_dir, f"int_feats{nnvs}", f"epoch_{epoch:04d}")
-        os.makedirs(feat_dir, exist_ok=True)
-
-
-        print(f"Saving videos to {video_dir} and images to {image_dir}")
-
-        fps = 15.0
-        # Render video.
-
-        self.pc_dict = {
-          'bike': ['/data3/zihanwa3/Capstone-DSR/Processing/dinov2features/', 111],
-          'dance': ['/data3/zihanwa3/Capstone-DSR/Processing_dance/dinov2features/', 100],
-        }
-        seq_name = 'bike'
-        self.data_path = self.pc_dict[seq_name][0]
-        self.seq_name = seq_name
-
-        with open(self.data_path+'fitted_pca_model.pkl', 'rb') as f:
-          self.feat_base = pickle.load(f)
-
-
-        video = []
-        video_dino = []
-        ref_pred_depths = []
-        masks = []
-        depth_min, depth_max = 1e6, 0
-        for batch_idx, batch in enumerate(
-            tqdm(self.train_loader, desc="Rendering video", leave=False)
-        ):
-            if batch_idx == 0 or batch_idx == 47:
-              afasfafasfas=5
-            else:
-              continue
-            batch = {
-                k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
-            # ().
-            t = batch["ts"][0]
-            # (4, 4).
-            K = batch["Ks"][0]
-            # (H, W, 3).
-            img = batch["imgs"][0]
-
-            w2c = torch.tensor(w2c).float().to(img.device)
-            img_wh = img.shape[-2::-1]
-            rendered = self.model.render(
-                t, w2c[None], K[None], img_wh, return_depth=True, return_mask=True
-            )
-            combined_img = torch.cat([img, rendered["img"][0]], dim=1).cpu()
-
-            video.append(combined_img)
-            feat = rendered["feat"][0]
-            pca_features = self.feat_base.transform(feat.cpu().numpy().reshape(-1, 32))
-
-            pca_features_norm = (pca_features - pca_features.min()) / (pca_features.max() - pca_features.min())
-            pca_features_norm = (pca_features_norm * 255).astype(np.uint8)
-            
-            # Reconstruct full image
-            full_pca_features = np.zeros((pca_features.shape[0], 3), dtype=np.uint8)
-            #if mask is not None:
-            #    full_pca_features[mask_flat] = pca_features_norm
-            #else:
-            full_pca_features = pca_features_norm
-            pca_features_image = full_pca_features.reshape(feat.shape[0], feat.shape[1], 3)
-            
-            video_dino.append(torch.from_numpy(pca_features_image))
-
-
-
-
-
-            ref_pred_depth = rendered["depth"][0].cpu()
-
-            print(ref_pred_depth.shape, 'shhhhhhape')
-            ref_pred_depths.append(ref_pred_depth)
-            depth_min = min(depth_min, ref_pred_depth.min().item())
-            depth_max = max(depth_max, ref_pred_depth.quantile(0.99).item())
-            if rendered["mask"] is not None:
-                masks.append(rendered["mask"][0].cpu().squeeze(-1))
-
-            # Save individual images
-            image_path = osp.join(image_dir, f"frame_{batch_idx:04d}.png")
-            iio.imwrite(
-                image_path,
-                (combined_img.numpy() * 255).astype(np.uint8)
-            )
-
-            feat_path = osp.join(feat_dir, f"frame_{batch_idx:04d}.png")
-            iio.imwrite(
-                feat_path,
-                (pca_features_image).astype(np.uint8)
-            )
-
-
-            # Save depth images
-            depth_colormap = apply_depth_colormap(
-                ref_pred_depth, near_plane=depth_min, far_plane=depth_max
-            )
-            depth_image_path = osp.join(image_dir, f"depth_{batch_idx:04d}.png")
-            iio.imwrite(
-                depth_image_path,
-                (depth_colormap.numpy() * 255).astype(np.uint8)
-            )
-
-            # Save mask images if available
-            if len(masks) > 0:
-                mask_image = masks[-1]
-                mask_image_path = osp.join(image_dir, f"mask_{batch_idx:04d}.png")
-                iio.imwrite(
-                    mask_image_path,
-                    (mask_image.numpy() * 255).astype(np.uint8)
-                )
-
-        video = torch.stack(video, dim=0)
-
-        video_dino = torch.stack(video_dino, dim=0)
-        iio.mimwrite(
-            osp.join(video_dir, "rgbs.mp4"),
-            make_video_divisble((video.numpy() * 255).astype(np.uint8)),
-            fps=fps,
-        )
-        print(video_dino.shape)
-        iio.mimwrite(
-            osp.join(video_dir, "feats.mp4"),
-            make_video_divisble((video_dino.numpy() * 255).astype(np.uint8)),
-            fps=fps,
-        )
-
-
-
-        # depth video
-        depth_video = torch.stack(
-            [
-                apply_depth_colormap(
-                    ref_pred_depth, near_plane=depth_min, far_plane=depth_max
-                )
-                for ref_pred_depth in ref_pred_depths
-            ],
-            dim=0,
-        )
-        iio.mimwrite(
-            osp.join(video_dir, "depths.mp4"),
-            make_video_divisble((depth_video.numpy() * 255).astype(np.uint8)),
-            fps=fps,
-        )
-        if len(masks) > 0:
-            # mask video
-            mask_video = torch.stack(masks, dim=0)
-            iio.mimwrite(
-                osp.join(video_dir, "masks.mp4"),
-                make_video_divisble((mask_video.numpy() * 255).astype(np.uint8)),
-                fps=fps,
-            )
-
-        '''# Render 2D track video.
-        tracks_2d, target_imgs = [], []
-        sample_interval = 10
-        batch0 = {
-            k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-            for k, v in self.train_loader.dataset[0].items()
-        }
-        # ().
-        t = batch0["ts"]
-        # (4, 4).
-        # (3, 3).
-        K = batch0["Ks"]
-        # (H, W, 3).
-        img = batch0["imgs"]
-        # (H, W).
-        bool_mask = batch0["masks"] > 0.5
-        img_wh = img.shape[-2::-1]
-        for batch in tqdm(
-            self.train_loader, desc="Rendering 2D track video", leave=False
-        ):
-            batch = {
-                k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
-            # Putting results onto CPU since it will consume unnecessarily
-            # large GPU memory for long sequence OW.
-            # (1, H, W, 3).
-            target_imgs.append(batch["imgs"].cpu())
-            # (1,).
-            target_ts = batch["ts"]
-            # (1, 4, 4).
-            target_w2cs = w2c
-            # (1, 3, 3).
-            target_Ks = batch["Ks"]
-            rendered = self.model.render(
-                t,
-                w2c[None],
-                K[None],
-                img_wh,
-                target_ts=target_ts,
-                target_w2cs=target_w2cs,
-            )
-            pred_tracks_3d = rendered["tracks_3d"][0][
-                ::sample_interval, ::sample_interval
-            ][bool_mask[::sample_interval, ::sample_interval]].swapaxes(0, 1)
-            pred_tracks_2d = torch.einsum("bij,bpj->bpi", target_Ks, pred_tracks_3d)
-            pred_tracks_2d = pred_tracks_2d[..., :2] / torch.clamp(
-                pred_tracks_2d[..., 2:], min=1e-6
-            )
-            tracks_2d.append(pred_tracks_2d.cpu())
-        tracks_2d = torch.cat(tracks_2d, dim=0)
-        target_imgs = torch.cat(target_imgs, dim=0)
-        track_2d_video = plot_correspondences(
-            target_imgs.numpy(),
-            tracks_2d.numpy(),
-            query_id=cast(int, t),
-        )
-        iio.mimwrite(
-            osp.join(video_dir, "tracks_2d.mp4"),
-            make_video_divisble(np.stack(track_2d_video, 0)),
-            fps=fps,
-        )'''
-        # Render motion coefficient video.
-        with torch.random.fork_rng():
-            torch.random.manual_seed(0)
-            motion_coef_colors = torch.pca_lowrank(
-                self.model.fg.get_coefs()[None],
-                q=3,
-            )[0][0]
-        motion_coef_colors = (motion_coef_colors - motion_coef_colors.min(0)[0]) / (
-            motion_coef_colors.max(0)[0] - motion_coef_colors.min(0)[0]
-        )
-
-        if self.model.bg is None: 
-          motion_coef_colors = motion_coef_colors
-        else:
-          motion_coef_colors = F.pad(
-              motion_coef_colors, (0, 0, 0, self.model.bg.num_gaussians), value=0.5
-          )
-        video = []
-        for batch in tqdm(
-            self.train_loader, desc="Rendering motion coefficient video", leave=False
-        ):
-            batch = {
-                k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
-            # ().
-            t = batch["ts"][0]
-            # (4, 4).
-            # (3, 3).
-            K = batch["Ks"][0]
-            # (3, 3).
-            img = batch["imgs"][0]
-            img_wh = img.shape[-2::-1]
-            rendered = self.model.render(
-                t, w2c[None], K[None], img_wh, colors_override=motion_coef_colors
-            )
-            # Putting results onto CPU since it will consume unnecessarily
-            # large GPU memory for long sequence OW.
-            video.append(torch.cat([img, rendered["img"][0]], dim=1).cpu())
-        video = torch.stack(video, dim=0)
-        iio.mimwrite(
-            osp.join(video_dir, "motion_coefs.mp4"),
-            make_video_divisble((video.numpy() * 255).astype(np.uint8)),
-            fps=fps,
-        )

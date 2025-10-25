@@ -3,6 +3,7 @@ import os.path as osp
 import shutil
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import List, Annotated
 
 import numpy as np
@@ -37,6 +38,25 @@ from flow3d.validator import Validator
 from flow3d.vis.utils import get_server
 from scipy.spatial.transform import Slerp, Rotation as R
 torch.set_float32_matmul_precision("high")
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+DATA_ROOT = PROJECT_ROOT / "data"
+RAW_ROOT = PROJECT_ROOT / "_raw_data"
+
+
+def _infer_raw_scene_dir(seq_name: str) -> Path:
+    stripped = seq_name.lstrip("_")
+    direct = RAW_ROOT / stripped
+    if direct.exists():
+        return direct
+    parts = [part for part in stripped.split("_") if part]
+    for idx in range(len(parts)):
+        candidate = RAW_ROOT / "_".join(parts[idx:])
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        f"Unable to locate raw data directory for sequence '{seq_name}' under '{RAW_ROOT}'."
+    )
 
 def set_seed(seed):
     # Set the seed for generating random numbers
@@ -347,16 +367,6 @@ def main(cfgs: List[TrainConfig]):
             c2w2 = c2ws[i + 1]
             all_interpolated_c2ws.extend(interpolate_cameras(c2wsp[i],c2wsp[i],0) )
             all_interpolated_c2ws_.extend(noisy_camera(c2w1))
-
-    #all_interpolated_c2ws = []
-
-    #t = 0
-    ### 1, 3 to 22 
-    ## NECESSARY: 0 - 》 1 3 8 23  [1, 3, 8, 23]
-    ### replaceable: 3/13  21/23 choce one 
-    #for c in [8, 9, 10, 11]:
-    #    all_interpolated_c2ws.append((md['w2c'][t][c]))
-    #all_interpolated_c2ws = np.array(all_interpolated_c2ws)
     
     guru.info(f"Starting training from {trainer.global_step=}")
     for epoch in (
@@ -451,15 +461,8 @@ def init_model_from_unified_tracks(
     feats_list = []
     tracks_3d = None
     # Loop over the datasets and collect data
-    for train_dataset in train_datasets[::2]:
-        tracks_3d, visibles, invisibles, confidences, colors, feats = train_dataset.get_tracks_3d(num_fg)
-        tracks_3d_list.append(tracks_3d)
-        visibles_list.append(visibles)
-        invisibles_list.append(invisibles)
-        confidences_list.append(confidences)
-        colors_list.append(colors)
-        feats_list.append(feats)
-    for train_dataset in train_datasets[::2]:
+
+    for train_dataset in train_datasets[::]:
         tracks_3d, visibles, invisibles, confidences, colors, feats = train_dataset.get_tracks_3d(num_fg)
         tracks_3d_list.append(tracks_3d)
         visibles_list.append(visibles)
@@ -491,8 +494,6 @@ def init_model_from_unified_tracks(
     cano_t = int(tracks_3d.visibles.sum(dim=0).argmax().item())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-
-    old_method = True
 
     motion_bases, motion_coefs, tracks_3d = init_motion_params_with_procrustes(
         tracks_3d, num_motion_bases, rot_type, cano_t, vis=vis, port=port
@@ -610,7 +611,6 @@ if __name__ == "__main__":
         depth = self.load_monster_depth(index)    
     elif self.depth_type == 'monst3r+dust3r':
         depth = self.load_duster_moncheck_depth(index) 
-    
     '''
 
     def find_missing_number(nums):
@@ -623,13 +623,20 @@ if __name__ == "__main__":
     
     print(work_dir)
     import tyro
+    data_root = str(DATA_ROOT.resolve())
+    try:
+        raw_scene_dir = _infer_raw_scene_dir(seq_name).resolve()
+        raw_meta_path = str(raw_scene_dir / "trajectory" / "Dy_train_meta.json")
+    except FileNotFoundError as exc:
+        guru.warning(str(exc))
+        raw_meta_path = ""
     if seq_name == 'olddance':
       configs = [
           TrainConfig(
               work_dir=work_dir,
               data=CustomDataConfig(
                   seq_name=f"{category}_undist_cam0{i+1}",
-                  root_dir="/data3/zihanwa3/Capstone-DSR/shape-of-motion/data",
+                  root_dir=data_root,
                   video_name=seq_name,
                   depth_type=depth_type,
               ),
@@ -638,7 +645,7 @@ if __name__ == "__main__":
               loss=tyro.cli(LossesConfig, args=remaining_args),
               optim=tyro.cli(OptimizerConfig, args=remaining_args),
               train_indices=train_indices,
-              test_w2cs=f'/data3/zihanwa3/Capstone-DSR/raw_data/{seq_name[1:]}/trajectory/Dy_train_meta.json',
+              test_w2cs=raw_meta_path,
               seq_name=seq_name
           )
           for i in range(4)
@@ -655,7 +662,7 @@ if __name__ == "__main__":
               work_dir=work_dir,
               data=CustomDataConfig(
                   seq_name=f"{category}_undist_cam{cam_dict[str(i+1)]:02d}",
-                  root_dir="/data3/zihanwa3/Capstone-DSR/shape-of-motion/data",
+                  root_dir=data_root,
                   video_name=seq_name,
                   depth_type=depth_type,
                   super_fast=False
@@ -665,7 +672,7 @@ if __name__ == "__main__":
               loss=tyro.cli(LossesConfig, args=remaining_args),
               optim=tyro.cli(OptimizerConfig, args=remaining_args),
               train_indices=train_indices,
-              test_w2cs=f'/data3/zihanwa3/Capstone-DSR/raw_data/{seq_name[1:]}/trajectory/Dy_train_meta.json',
+              test_w2cs=raw_meta_path,
               seq_name=seq_name
           )
           for i in range(4)
@@ -689,7 +696,7 @@ if __name__ == "__main__":
               work_dir=work_dir,
               data=CustomDataConfig(
                   seq_name=f"{category}_undist_cam{cam_dict[str(i+1)]:02d}",
-                  root_dir="/data3/zihanwa3/Capstone-DSR/shape-of-motion/data",
+                  root_dir=data_root,
                   video_name=seq_name,
                   depth_type=depth_type,
                   super_fast=False
@@ -699,7 +706,7 @@ if __name__ == "__main__":
               loss=tyro.cli(LossesConfig, args=remaining_args),
               optim=tyro.cli(OptimizerConfig, args=remaining_args),
               train_indices=train_indices,
-              test_w2cs=f'/data3/zihanwa3/Capstone-DSR/raw_data/{seq_name[1:]}/trajectory/Dy_train_meta.json',
+              test_w2cs=raw_meta_path,
               seq_name=seq_name
           )
           for i in range(4)
