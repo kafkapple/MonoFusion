@@ -3,7 +3,6 @@ from __future__ import annotations
 import glob
 import shlex
 import subprocess
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import tyro
@@ -215,6 +214,9 @@ def main(
     feature_save_viz: bool = True,
     feature_viz_dirname: str = "pca_viz",
     feature_save_pca_model: bool = True,
+    feature_num_crops_l0: int = 4,
+    feature_crop_layers: int = 1,
+    feature_crop_overlap_ratio: float = 512.0 / 1500.0,
     run_moge: bool = True,
     moge_name: str = "moge",
     moge_model: str = "Ruicheng/moge-vitl",
@@ -326,153 +328,161 @@ def main(
 
     seq_names = [name if name is None else str(name) for name in seq_names]
 
-    with ProcessPoolExecutor(max_workers=len(gpus)) as executor:
-        submitted_dust3r: set[str] = set()
-        submitted_raw_moge: set[str] = set()
-        submitted_aligned_moge: set[str] = set()
-        for idx, img_dir in enumerate(img_dirs):
-            gpu = gpus[idx % len(gpus)]
-            img_dir = img_dir.rstrip("/")
-            mask_dir = img_dir.replace(img_name, mask_name)
-            metric_depth_dir = img_dir.replace(img_name, metric_depth_name)
-            intrins_path = img_dir.replace(img_name, intrins_name)
-            mono_depth_dir = img_dir.replace(img_name, mono_depth_name)
-            aligned_depth_dir = img_dir.replace(img_name, f"aligned_{mono_depth_name}")
-            slam_dir = img_dir.replace(img_name, slam_name)
-            track_dir = img_dir.replace(img_name, track_model)
-            dust3r_dir = img_dir.replace(img_name, dust3r_name)
-            automask_dir = img_dir.replace(img_name, automask_name)
-            feature_dir = img_dir.replace(img_name, feature_name)
-            moge_dir = img_dir.replace(img_name, moge_name)
-            raw_moge_dir = img_dir.replace(img_name, raw_moge_name)
-            aligned_moge_dir = img_dir.replace(img_name, aligned_moge_name)
+    if not gpus:
+        raise ValueError("gpus cannot be empty")
+    if len(gpus) > 1:
+        print(
+            f"[Features] Multiple GPU ids provided ({gpus}); using the first one ({gpus[0]}) for all feature jobs."
+        )
+    gpu = gpus[0]
 
-            img_path = Path(img_dir).resolve()
-            image_root_path = _find_named_ancestor(img_path, img_name)
-            if image_root_path is None:
-                raise ValueError(f"Could not locate '{img_name}' ancestor for {img_dir}")
-            mask_root_path = (
-                mask_root_override
-                if mask_root_override is not None
-                else _find_named_ancestor(Path(mask_dir).resolve(), mask_name)
+    submitted_dust3r: set[str] = set()
+    submitted_raw_moge: set[str] = set()
+    submitted_aligned_moge: set[str] = set()
+    for idx, img_dir in enumerate(img_dirs):
+        img_dir = img_dir.rstrip("/")
+        mask_dir = img_dir.replace(img_name, mask_name)
+        metric_depth_dir = img_dir.replace(img_name, metric_depth_name)
+        intrins_path = img_dir.replace(img_name, intrins_name)
+        mono_depth_dir = img_dir.replace(img_name, mono_depth_name)
+        aligned_depth_dir = img_dir.replace(img_name, f"aligned_{mono_depth_name}")
+        slam_dir = img_dir.replace(img_name, slam_name)
+        track_dir = img_dir.replace(img_name, track_model)
+        dust3r_dir = img_dir.replace(img_name, dust3r_name)
+        automask_dir = img_dir.replace(img_name, automask_name)
+        feature_dir = img_dir.replace(img_name, feature_name)
+        moge_dir = img_dir.replace(img_name, moge_name)
+        raw_moge_dir = img_dir.replace(img_name, raw_moge_name)
+        aligned_moge_dir = img_dir.replace(img_name, aligned_moge_name)
+
+        img_path = Path(img_dir).resolve()
+        image_root_path = _find_named_ancestor(img_path, img_name)
+        if image_root_path is None:
+            raise ValueError(f"Could not locate '{img_name}' ancestor for {img_dir}")
+        mask_root_path = (
+            mask_root_override
+            if mask_root_override is not None
+            else _find_named_ancestor(Path(mask_dir).resolve(), mask_name)
+        )
+
+        seq_name = seq_names[idx]
+        dust3r_cli_args = None
+        if run_dust3r and seq_name is not None and seq_name not in submitted_dust3r:
+            dust3r_cli_args = _build_dust3r_cli_args(
+                seq_name=seq_name,
+                img_dir=img_dir,
+                mask_dir=mask_dir,
+                dust3r_dir=dust3r_dir,
+                img_name=img_name,
+                mask_name=mask_name,
+                model_name=dust3r_model,
+                batch_size=dust3r_batch_size,
+                schedule=dust3r_schedule,
+                niter=dust3r_optimizer_iters,
+                learning_rate=dust3r_learning_rate,
+                image_size=dust3r_image_size,
+                frame_step=dust3r_frame_step,
+                frame_count=dust3r_frame_count,
+                device=dust3r_device,
+                output_dirname=dust3r_output_dirname,
+                raw_root=raw_root,
+                mask_root_override=mask_root_override,
+                processing_root=processing_root,
             )
+            submitted_dust3r.add(seq_name)
 
-            seq_name = seq_names[idx]
-            dust3r_cli_args = None
-            if run_dust3r and seq_name is not None and seq_name not in submitted_dust3r:
-                dust3r_cli_args = _build_dust3r_cli_args(
-                    seq_name=seq_name,
-                    img_dir=img_dir,
-                    mask_dir=mask_dir,
-                    dust3r_dir=dust3r_dir,
-                    img_name=img_name,
-                    mask_name=mask_name,
-                    model_name=dust3r_model,
-                    batch_size=dust3r_batch_size,
-                    schedule=dust3r_schedule,
-                    niter=dust3r_optimizer_iters,
-                    learning_rate=dust3r_learning_rate,
-                    image_size=dust3r_image_size,
-                    frame_step=dust3r_frame_step,
-                    frame_count=dust3r_frame_count,
-                    device=dust3r_device,
-                    output_dirname=dust3r_output_dirname,
-                    raw_root=raw_root,
-                    mask_root_override=mask_root_override,
-                    processing_root=processing_root,
-                )
-                submitted_dust3r.add(seq_name)
-
-            raw_moge_cli_args = None
-            if run_raw_moge_depth and seq_name is not None and seq_name not in submitted_raw_moge:
-                eff_frame_step = raw_moge_frame_step if raw_moge_frame_step is not None else moge_frame_step
-                eff_max_frames = raw_moge_max_frames if raw_moge_max_frames is not None else moge_max_frames
-                raw_moge_cli_args = _build_raw_moge_cli_args(
-                    seq_name=seq_name,
-                    image_root=image_root_path,
-                    output_root=Path(raw_moge_dir).resolve().parent,
-                    model_name=moge_model,
-                    device="cuda",
-                    frame_step=eff_frame_step,
-                    max_frames=eff_max_frames,
-                    overwrite=raw_moge_overwrite,
-                    raw_root=raw_root,
-                )
-                submitted_raw_moge.add(seq_name)
-
-            aligned_moge_cli_args = None
-            if run_aligned_moge_depth and seq_name is not None and seq_name not in submitted_aligned_moge:
-                aligned_moge_cli_args = _build_aligned_moge_cli_args(
-                    seq_name=seq_name,
-                    raw_moge_root=Path(raw_moge_dir).resolve().parent,
-                    dust3r_root=Path(dust3r_dir).resolve().parent,
-                    mask_root=mask_root_override if mask_root_override is not None else mask_root_path,
-                    image_root=image_root_path,
-                    output_root=Path(aligned_moge_dir).resolve().parent,
-                    raw_root=raw_root,
-                    min_valid_pixels=aligned_moge_min_valid_pixels,
-                    store_pointcloud=aligned_moge_store_pointcloud,
-                    overwrite=aligned_moge_overwrite,
-                )
-                submitted_aligned_moge.add(seq_name)
-
-            executor.submit(
-                process_sequence,
-                gpu,
-                img_dir,
-                mask_dir,
-                metric_depth_dir,
-                intrins_path,
-                mono_depth_dir,
-                aligned_depth_dir,
-                slam_dir,
-                track_dir,
-                run_metric_depth,
-                run_mono_depth,
-                mono_depth_model,
-                run_tracks,
-                track_model,
-                tapir_torch,
-                run_dust3r and dust3r_cli_args is not None,
-                dust3r_dir,
-                dust3r_model,
-                dust3r_scene_graph,
-                dust3r_window_size,
-                dust3r_optimizer_iters,
-                dust3r_learning_rate,
-                dust3r_min_confidence,
-                dust3r_optimize,
-                run_automask,
-                automask_dir,
-                automask_prompt,
-                automask_overwrite,
-                run_features,
-                feature_dir,
-                feature_model,
-                feature_height,
-                feature_width,
-                feature_dim,
-                feature_samples,
-                feature_frame_step,
-                feature_max_frames,
-                feature_save_viz,
-                feature_viz_dirname,
-                feature_save_pca_model,
-                run_moge,
-                moge_dir,
-                moge_model,
-                moge_target_height,
-                moge_target_width,
-                moge_store_mask,
-                moge_store_pointcloud,
-                moge_store_intrinsics,
-                moge_overwrite,
-                moge_max_frames,
-                moge_frame_step,
-                dust3r_cli_args,
-                raw_moge_cli_args,
-                aligned_moge_cli_args,
+        raw_moge_cli_args = None
+        if run_raw_moge_depth and seq_name is not None and seq_name not in submitted_raw_moge:
+            eff_frame_step = raw_moge_frame_step if raw_moge_frame_step is not None else moge_frame_step
+            eff_max_frames = raw_moge_max_frames if raw_moge_max_frames is not None else moge_max_frames
+            raw_moge_cli_args = _build_raw_moge_cli_args(
+                seq_name=seq_name,
+                image_root=image_root_path,
+                output_root=Path(raw_moge_dir).resolve().parent,
+                model_name=moge_model,
+                device="cuda",
+                frame_step=eff_frame_step,
+                max_frames=eff_max_frames,
+                overwrite=raw_moge_overwrite,
+                raw_root=raw_root,
             )
+            submitted_raw_moge.add(seq_name)
+
+        aligned_moge_cli_args = None
+        if run_aligned_moge_depth and seq_name is not None and seq_name not in submitted_aligned_moge:
+            aligned_moge_cli_args = _build_aligned_moge_cli_args(
+                seq_name=seq_name,
+                raw_moge_root=Path(raw_moge_dir).resolve().parent,
+                dust3r_root=Path(dust3r_dir).resolve().parent,
+                mask_root=mask_root_override if mask_root_override is not None else mask_root_path,
+                image_root=image_root_path,
+                output_root=Path(aligned_moge_dir).resolve().parent,
+                raw_root=raw_root,
+                min_valid_pixels=aligned_moge_min_valid_pixels,
+                store_pointcloud=aligned_moge_store_pointcloud,
+                overwrite=aligned_moge_overwrite,
+            )
+            submitted_aligned_moge.add(seq_name)
+
+        process_sequence(
+            gpu,
+            img_dir,
+            mask_dir,
+            metric_depth_dir,
+            intrins_path,
+            mono_depth_dir,
+            aligned_depth_dir,
+            slam_dir,
+            track_dir,
+            run_metric_depth,
+            run_mono_depth,
+            mono_depth_model,
+            run_tracks,
+            track_model,
+            tapir_torch,
+            run_dust3r and dust3r_cli_args is not None,
+            dust3r_dir,
+            dust3r_model,
+            dust3r_scene_graph,
+            dust3r_window_size,
+            dust3r_optimizer_iters,
+            dust3r_learning_rate,
+            dust3r_min_confidence,
+            dust3r_optimize,
+            run_automask,
+            automask_dir,
+            automask_prompt,
+            automask_overwrite,
+            run_features,
+            feature_dir,
+            feature_model,
+            feature_height,
+            feature_width,
+            feature_dim,
+            feature_samples,
+            feature_frame_step,
+            feature_max_frames,
+            feature_save_viz,
+            feature_viz_dirname,
+            feature_save_pca_model,
+            feature_num_crops_l0,
+            feature_crop_layers,
+            feature_crop_overlap_ratio,
+            run_moge,
+            moge_dir,
+            moge_model,
+            moge_target_height,
+            moge_target_width,
+            moge_store_mask,
+            moge_store_pointcloud,
+            moge_store_intrinsics,
+            moge_overwrite,
+            moge_max_frames,
+            moge_frame_step,
+            dust3r_cli_args,
+            raw_moge_cli_args,
+            aligned_moge_cli_args,
+        )
 
 
 def process_sequence(
@@ -516,6 +526,9 @@ def process_sequence(
     feature_save_viz: bool,
     feature_viz_dirname: str,
     feature_save_pca_model: bool,
+    feature_num_crops_l0: int,
+    feature_crop_layers: int,
+    feature_crop_overlap_ratio: float,
     run_moge: bool,
     moge_dir: str,
     moge_model: str,
@@ -533,45 +546,6 @@ def process_sequence(
 ) -> None:
     dev_arg = f"CUDA_VISIBLE_DEVICES={gpu}"
 
-    # conda activate visprog
-    if run_automask:
-        img_path = Path(img_dir)
-        if not img_path.exists():
-            raise FileNotFoundError(f"Image directory '{img_path}' does not exist")
-        video_root = img_path.parent
-        if not video_root.exists():
-            raise FileNotFoundError(f"Video root '{video_root}' does not exist")
-        dataset_root = video_root.parent
-        mask_root = Path(automask_dir)
-        if not mask_root.is_absolute():
-            mask_root = dataset_root / mask_root
-        if mask_root.name == img_path.name:
-            mask_root = mask_root.parent
-        automask_cmd = (
-            f"{dev_arg} python AutoMask/custom_mask.py --video_dir {_quoted(str(video_root))} "
-            f"--save_dir {_quoted(str(mask_root))} --seq {_quoted(img_path.name)} "
-            f"--text_prompt {_quoted(automask_prompt)}"
-        )
-        if automask_overwrite:
-            automask_cmd += " --overwrite"
-        _run_command(automask_cmd)
-
-        vis_cmd = (
-            f"{dev_arg} python AutoMask/visualize_masks.py --video_dir {_quoted(str(video_root))} "
-            f"--mask_dir {_quoted(str(mask_root))} --seq {_quoted(img_path.name)}"
-        )
-        if automask_overwrite:
-            vis_cmd += " --overwrite"
-        _run_command(vis_cmd)
-
-    if run_tracks:
-        track_script = "compute_tracks_torch.py" if tapir_torch else "compute_tracks_jax.py"
-        track_cmd = (
-            f"{dev_arg} python {track_script} --model_type {track_model} "
-            f"--image_dir {_quoted(img_dir)} --mask_dir {_quoted(mask_dir)} "
-            f"--out_dir {_quoted(track_dir)}"
-        )
-        _run_command(track_cmd)
 
     if run_features:
         feature_cmd = (
@@ -593,17 +567,6 @@ def process_sequence(
             feature_cmd += " --no-save_pca_model"
         _run_command(feature_cmd)
 
-    if raw_moge_cli_args:
-        raw_cmd = f"{dev_arg} python compute_raw_moge_depth.py {raw_moge_cli_args}"
-        _run_command(raw_cmd)
-
-    if run_dust3r and dust3r_cli_args:
-        dust_cmd = f"{dev_arg} python compute_dust3r.py {dust3r_cli_args}"
-        _run_command(dust_cmd)
-
-    if aligned_moge_cli_args:
-        aligned_cmd = f"{dev_arg} python compute_aligned_moge_depth.py {aligned_moge_cli_args}"
-        _run_command(aligned_cmd)
 
 if __name__ == "__main__":
     tyro.cli(main)

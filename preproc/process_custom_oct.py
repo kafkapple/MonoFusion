@@ -533,69 +533,31 @@ def process_sequence(
 ) -> None:
     dev_arg = f"CUDA_VISIBLE_DEVICES={gpu}"
 
-    # conda activate visprog
-    if run_automask:
-        img_path = Path(img_dir)
-        if not img_path.exists():
-            raise FileNotFoundError(f"Image directory '{img_path}' does not exist")
-        video_root = img_path.parent
-        if not video_root.exists():
-            raise FileNotFoundError(f"Video root '{video_root}' does not exist")
-        dataset_root = video_root.parent
-        mask_root = Path(automask_dir)
-        if not mask_root.is_absolute():
-            mask_root = dataset_root / mask_root
-        if mask_root.name == img_path.name:
-            mask_root = mask_root.parent
-        automask_cmd = (
-            f"{dev_arg} python AutoMask/custom_mask.py --video_dir {_quoted(str(video_root))} "
-            f"--save_dir {_quoted(str(mask_root))} --seq {_quoted(img_path.name)} "
-            f"--text_prompt {_quoted(automask_prompt)}"
-        )
-        if automask_overwrite:
-            automask_cmd += " --overwrite"
-        _run_command(automask_cmd)
-
-        vis_cmd = (
-            f"{dev_arg} python AutoMask/visualize_masks.py --video_dir {_quoted(str(video_root))} "
-            f"--mask_dir {_quoted(str(mask_root))} --seq {_quoted(img_path.name)}"
-        )
-        if automask_overwrite:
-            vis_cmd += " --overwrite"
-        _run_command(vis_cmd)
-
-    if run_tracks:
-        track_script = "compute_tracks_torch.py" if tapir_torch else "compute_tracks_jax.py"
-        track_cmd = (
-            f"{dev_arg} python {track_script} --model_type {track_model} "
-            f"--image_dir {_quoted(img_dir)} --mask_dir {_quoted(mask_dir)} "
-            f"--out_dir {_quoted(track_dir)}"
-        )
-        _run_command(track_cmd)
-
-    if run_features:
-        feature_cmd = (
-            f"{dev_arg} python compute_dinofeatures.py --img_dir {_quoted(img_dir)} "
-            f"--out_dir {_quoted(feature_dir)} --device cuda "
-            f"--model_name {_quoted(feature_model)} --output_height {feature_height} "
-            f"--output_width {feature_width} --output_dim {feature_dim} "
-            f"--num_crops_l0 {feature_num_crops_l0} --crop_n_layers {feature_crop_layers} "
-            f"--crop_overlap_ratio {feature_crop_overlap_ratio} "
-            f"--sample_per_image {feature_samples} --frame_step {feature_frame_step} "
-            f"--mask_dir {_quoted(mask_dir)}"
-        ) 
-        if feature_max_frames is not None:
-            feature_cmd += f" --max_frames {feature_max_frames}"
-        feature_cmd += f" --viz_dirname {_quoted(feature_viz_dirname)}"
-        if not feature_save_viz:
-            feature_cmd += " --no-save_viz"
-        if not feature_save_pca_model:
-            feature_cmd += " --no-save_pca_model"
-        _run_command(feature_cmd)
 
     if raw_moge_cli_args:
         raw_cmd = f"{dev_arg} python compute_raw_moge_depth.py {raw_moge_cli_args}"
         _run_command(raw_cmd)
+
+    '''if run_moge:
+        moge_cmd = (
+            f"{dev_arg} python compute_moge.py --img_dir {_quoted(img_dir)} "
+            f"--out_dir {_quoted(moge_dir)} --model_name {_quoted(moge_model)}"
+        )
+        if moge_target_height is not None and moge_target_width is not None:
+            moge_cmd += f" --target_height {moge_target_height} --target_width {moge_target_width}"
+        if not moge_store_mask:
+            moge_cmd += " --store_mask False"
+        if not moge_store_pointcloud:
+            moge_cmd += " --store_pointcloud False"
+        if not moge_store_intrinsics:
+            moge_cmd += " --store_intrinsics False"
+        if moge_overwrite:
+            moge_cmd += " --overwrite"
+        if moge_max_frames is not None:
+            moge_cmd += f" --max_frames {moge_max_frames}"
+        if moge_frame_step != 1:
+            moge_cmd += f" --frame_step {moge_frame_step}"
+        _run_command(moge_cmd)'''
 
     if run_dust3r and dust3r_cli_args:
         dust_cmd = f"{dev_arg} python compute_dust3r.py {dust3r_cli_args}"

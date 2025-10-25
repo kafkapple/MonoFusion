@@ -1,8 +1,9 @@
 import argparse
 import glob
 import os
+from pathlib import Path
 
-import imageio
+import imageio.v2 as imageio
 import cv2
 import mediapy as media
 import numpy as np
@@ -19,26 +20,67 @@ def read_video(folder_path):
     return video
 
 
-def read_video_npz(folder_path):
-    try:
-      frame_paths = sorted(glob.glob(os.path.join(folder_path, "*")))
-      print(frame_paths)
-      print(folder_path, np.load(frame_paths[0])['dyn_mask'].shape)
+def _candidate_mask_dirs(requested: Path, image_dir: Path) -> list[Path]:
+    candidates: list[Path] = []
 
-      video = np.stack([cv2.resize((np.load(frame_path)['dyn_mask'][0]* 255).astype(np.uint8), (512, 288), interpolation=cv2.INTER_LINEAR)[np.newaxis, ...].astype(bool) for frame_path in frame_paths])
-      print(f"MMMMASK_{video.shape=} {video.dtype=} {video.min()=} {video.max()=}")
-      video = media._VideoArray(video)
-    except:
-      folder_path = folder_path.replace('/data3/zihanwa3/Capstone-DSR/shape-of-motion/data/masks/bike_undist_cam0',
-      '/data3/zihanwa3/Capstone-DSR/Processing/sam_v2_dyn_mask/')
-      frame_paths = sorted(glob.glob(os.path.join(folder_path, "*")))[49:350]
-      print(frame_paths)
-      print(folder_path, np.load(frame_paths[0])['dyn_mask'].shape)
+    def _add(path: Path) -> None:
+        if path not in candidates:
+            candidates.append(path)
 
-      video = np.stack([cv2.resize((np.load(frame_path)['dyn_mask'][0]* 255).astype(np.uint8), (3840, 2160), interpolation=cv2.INTER_LINEAR)[np.newaxis, ...].astype(bool) for frame_path in frame_paths])
-      print(f"MMMMASK_{video.shape=} {video.dtype=} {video.min()=} {video.max()=}")
-      video = media._VideoArray(video)
-    return video
+    _add(requested)
+    _add(requested.parent / image_dir.name)
+    _add(requested.parent / "sam_v2_dyn_mask" / image_dir.name)
+    _add(requested.parent / "masks" / image_dir.name)
+
+    dataset_root = image_dir.parent.parent
+    _add(dataset_root / "sam_v2_dyn_mask" / image_dir.name)
+    _add(dataset_root / "masks" / image_dir.name)
+
+    return candidates
+
+
+def _resolve_mask_dir(mask_dir: str, image_dir: str) -> Path:
+    mask_path = Path(mask_dir)
+    image_path = Path(image_dir).resolve()
+
+    if mask_path.exists():
+        return mask_path
+
+    for candidate in _candidate_mask_dirs(mask_path, image_path):
+        if candidate.exists():
+            print(f"[Tracks] Using mask directory {candidate}")
+            return candidate
+
+    raise FileNotFoundError(
+        f"Mask directory '{mask_dir}' not found; searched {[str(c) for c in _candidate_mask_dirs(mask_path, image_path)]}"
+    )
+
+
+def read_video_npz(folder_path: Path) -> media._VideoArray:
+    frame_paths = sorted(folder_path.glob("*.npz"))
+    if not frame_paths:
+        raise FileNotFoundError(f"No mask npz files found in {folder_path}")
+
+    first = frame_paths[0]
+    with np.load(first) as sample:
+        if "dyn_mask" not in sample:
+            raise KeyError(f"File {first} missing 'dyn_mask' array")
+
+    target_width, target_height = 512, 288
+    resized_masks = []
+    for frame_path in frame_paths:
+        with np.load(frame_path) as data:
+            mask = np.squeeze(data["dyn_mask"]).astype(np.uint8)
+        resized = cv2.resize(
+            mask * 255,
+            (target_width, target_height),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        resized_masks.append(resized[np.newaxis, ...].astype(bool))
+
+    video = np.stack(resized_masks)
+    print(f"MMMMASK_{video.shape=} {video.dtype=} {video.min()=} {video.max()=}")
+    return media._VideoArray(video)
 
 
 def preprocess_frames(frames):
@@ -75,7 +117,7 @@ def main():
     args = parser.parse_args()
 
     folder_path = args.image_dir
-    mask_dir = args.mask_dir
+    mask_dir_path = _resolve_mask_dir(args.mask_dir, folder_path)
     frame_names = [
         os.path.basename(f) for f in sorted(glob.glob(os.path.join(folder_path, "*")))
     ]
@@ -121,7 +163,7 @@ def main():
     #  masks = read_video(mask_dir)
     #  print('VIDEO SHAPE OF', masks.shape)
     #except: 
-    masks = read_video_npz(mask_dir)[:]
+    masks = read_video_npz(mask_dir_path)[:]
     masks = (masks.reshape((num_frames, height, width, -1)) > 0).any(axis=-1)
     print(f"{video.shape=} {masks.shape=} {masks.max()=} {masks.sum()=}")
 
