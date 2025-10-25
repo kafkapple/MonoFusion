@@ -25,3 +25,9 @@
 [submodule "preproc/ExoRecon"]
 	path = preproc/ExoRecon
 	url = https://github.com/MonoFusion/ExoRecon.git
+[submodule "preproc/SEA-RAFT"]
+	path = preproc/SEA-RAFT
+	url = https://github.com/princeton-vl/SEA-RAFT.git
+[submodule "preproc/DinoFeature/dinov2"]
+	url = https://github.com/facebookresearch/dinov2.git
+	path = preproc/DinoFeature/dinov2
