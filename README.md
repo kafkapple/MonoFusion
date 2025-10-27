@@ -20,7 +20,7 @@ cd preproc && ./setup_dependencies.sh && cd -
 ```
 
 ## Usage
-### 1. Raw data via [ExoRecon](preproc/ExoRecon/README.md) (`./raw_data/SEQ_NAME`)
+### 1. Prepare raw data via [ExoRecon](https://github.com/MonoFusion/ExoRecon)
 - `cd preproc/ExoRecon` and follow `README.md` there:
   ```bash
   conda env create -f egorecon.yml
@@ -67,3 +67,6 @@ If you find our data, code processing, or project useful, please kindly consider
     pages     = {8252-8263}
 }
 ```
+
+## Acknowledgement
+Code is built from [Shape-of-Motion](https://github.com/vye16/shape-of-motion), thanks for wonderful codebase!
