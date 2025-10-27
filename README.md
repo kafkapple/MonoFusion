@@ -34,15 +34,14 @@ cd preproc && ./setup_dependencies.sh && cd -
   ```
 - Each take should end up as `MonoFusion/raw_data/<SEQ_NAME>/` containing `aria01.vrs`, `frame_aligned_videos/`, `trajectory/Dy_train_meta.json`, and `timestep.txt`.
 
-### 3. Priors (`./data/SEQ_NAME`)
+### 3. Get ALL Priors (``)
 ```bash
 cd preproc
 python process_custom.py \
-  --img-dirs ../raw_data/<SEQ_NAME>/images \
-  --gpus 0 1
+  --img-dirs ../raw_data/images/<SEQ> \
+  --gpus 0 1 2 3
 ```
 - Generates depth, masks, TAPIR tracks, and DUSt3R alignment into `../data/<SEQ_NAME>/`.
-- Re-run whenever raw inputs change; outputs are overwritten safely.
 
 ### 4. Train (`bash opt.sh`)
 ```bash
@@ -52,7 +51,7 @@ bash opt.sh <experiment_prefix>
 - The script appends a timestamp, calls `dance_glb.py`, logs to `./results_<SEQ_NAME>/<experiment_prefix>_<timestamp>/`, and saves checkpoints under `checkpoints/` inside that folder.
 - Advanced runs can invoke `python dance_glb.py --seq_name <SEQ_NAME> --exp <NAME> [Tyro args]` directly.
 
-### 5. Visualize (`bash vis.sh <WORK_DIR> <PORT>`)
+### 5. Visualize
 ```bash
 bash vis.sh ./results_<SEQ_NAME>/<RUN_NAME> 7007
 ```
@@ -63,13 +62,12 @@ bash vis.sh ./results_<SEQ_NAME>/<RUN_NAME> 7007
 ## Citation
 If you find our data, code processing, or project useful, please kindly consider citing our work: 
 ```
-@misc{wang2025monofusionsparseview4dreconstruction,
-      title={MonoFusion: Sparse-View 4D Reconstruction via Monocular Fusion}, 
-      author={Zihan Wang and Jeff Tan and Tarasha Khurana and Neehar Peri and Deva Ramanan},
-      year={2025},
-      eprint={2507.23782},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2507.23782}, 
+@InProceedings{Wang_2025_ICCV,
+    author    = {Wang, Zihan and Tan, Jeff and Khurana, Tarasha and Peri, Neehar and Ramanan, Deva},
+    title     = {MonoFusion: Sparse-View 4D Reconstruction via Monocular Fusion},
+    booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+    month     = {October},
+    year      = {2025},
+    pages     = {8252-8263}
 }
 ```
