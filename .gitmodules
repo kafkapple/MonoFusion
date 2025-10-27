@@ -1,0 +1,4 @@
+[submodule "preproc/ExoRecon"]
+	path = preproc/ExoRecon
+	url = https://github.com/MonoFusion/ExoRecon.git
+	branch = master
