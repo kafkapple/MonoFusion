@@ -155,12 +155,6 @@ class Validator:
         self.model = model
         if do_the_trick:
            self.model.bg.params['scales'] = do_the_trick *  self.model.bg.params['scales']
-        #if no_fg:
-        '''fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_nus_cpr_08_1/_algo_depth'
-        fg_path = f"{fg_path}/checkpoints/last.ckpt"
-        ckpt_fg = torch.load(fg_path)["model"]
-        model_fg = SceneModel.init_from_state_dict(ckpt_fg)
-        self.model.fg = model_fg.fg'''
         self.device = device
         self.train_loader = train_loader
         self.val_img_loader = val_img_loader

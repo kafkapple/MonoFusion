@@ -101,73 +101,8 @@ class Renderer:
         
         model_fg=None
         if do_my_trick:
-           print('did the')
-           '''if 'pianoooo' in path:
-            fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_indiana_piano_14_4/_init_opt_63'
-            fg_path = f"{fg_path}/checkpoints/last.ckpt"
-            ckpt_fg = torch.load(fg_path)["model"]
-            model_fg = SceneModel.init_from_state_dict(ckpt_fg)
-            model_fg = model_fg.to(device) 
-           elif 'cpr' in path:   
-            print('changing fgggggg !!!!')
-            fg_path = '/data3/zihanwa3/Capstone-DSR/shape-of-motion/results_nus_cpr_08_1/_algo_depth'
-            fg_path = f"{fg_path}/checkpoints/last.ckpt"
-            ckpt_fg = torch.load(fg_path)["model"]
-            model_fg = SceneModel.init_from_state_dict(ckpt_fg)
-            model_fg = model_fg.to(device)
-            model.fg = model_fg.fg
-           if model_fg is None:
-            model.bg = model.bg 
-           else:
-            model.bg = model_fg.bg#.params'''
            model.fg.params['opacities'] =  (model.fg.params['opacities']) # torch.logit(model.fg.params['opacities'] -  model.fg.params['opacities'])
            #model.bg.params['scales'] =  0.99 * model.bg.params['scales']
-
-
-        '''
-        def initialize_new_params(new_pt_cld):
-            num_pts = new_pt_cld.shape[0]
-            means3D = torch.tensor(new_pt_cld[:, :3], dtype=torch.float, device="cuda")  # Convert to torch tensor, shape [num_gaussians, 3]
-            unnorm_rots = torch.tensor(np.tile([1, 0, 0, 0], (num_pts, 1)), dtype=torch.float, device="cuda")  # [num_gaussians, 4]
-            logit_opacities = torch.zeros((num_pts), dtype=torch.float, device="cuda")  # [num_gaussians, 1]
-            
-            sq_dist, _ = o3d_knn(new_pt_cld[:, :3], 3)  # Assuming o3d_knn returns a numpy array
-            mean3_sq_dist = np.clip(sq_dist.mean(-1), a_min=0.0000001, a_max=None)
-            
-            seg = np.ones((num_pts))
-            seg_colors_np = np.stack((seg, np.zeros_like(seg), 1 - seg), -1)  # [num_pts, 3]
-
-            # Convert everything to torch tensors
-            params = {
-                'means3D': means3D,  # Already converted
-                'rgb_colors': torch.tensor(new_pt_cld[:, 3:6], dtype=torch.float, device="cuda"),  # [num_gaussians, 3]
-                'unnorm_rotations': unnorm_rots,  # Already converted
-                'seg_colors': torch.tensor(seg_colors_np, dtype=torch.float, device="cuda"),  # [num_pts, 3]
-                'logit_opacities': logit_opacities,  # Already converted
-                'log_scales': torch.tensor(np.tile(np.log(np.sqrt(mean3_sq_dist))[..., None], (1, 3)), dtype=torch.float, device="cuda")  # [num_gaussians, 3]
-            }
-
-            return params
-        params =
-      
-        bg_means = params['means3D']#[0]
-        bg_quats = params['unnorm_rotations']#[0]
-        bkdg_scales = params['log_scales']
-        bkdg_colors = params['rgb_colors'] #* 255#[0]
-        bg_opacities = params['logit_opacities'][:, 0]
-        bg_scene_center = bg_means.mean(0)
-        bkdg_feats=torch.ones(bg_means.shape[0], 32)
-
-        gaussians = GaussianParams(
-            bg_means,
-            bg_quats,
-            bkdg_scales,
-            bkdg_colors,
-            bg_opacities,
-        )
-
-        model.bg = Ggaussians
-        '''
         renderer = Renderer(model, device, *args, **kwargs)
 
            
