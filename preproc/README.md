@@ -1,76 +1,70 @@
+# MonoFusion Preprocessing
+**[Project Page](https://ImNotPrepared.github.io/research/25_DSR/index.html) | [Arxiv](https://arxiv.org/abs/2507.23782) | [Data](https://drive.google.com/drive/folders/18H8OOOZLv7OmOen8pGbSLWwu8AvZAZro?usp=sharing)**
 
-We depend on the following third-party libraries for preprocessing:
-
-1. Metric depth: [Unidepth](https://github.com/lpiccinelli-eth/UniDepth/blob/main/install.sh)
-2. Monocular depth: [Depth Anything](https://github.com/LiheYoung/Depth-Anything)
-3. Mask estimation: [Track-Anything](https://github.com/gaomingqi/Track-Anything) (Segment-Anything + XMem)
-4. Camera estimation: [DROID-SLAM](https://github.com/princeton-vl/DROID-SLAM/tree/main)
-5. 2D Tracks: [TAPIR](https://github.com/google-deepmind/tapnet)
+We rely on the following upstream projects:
+- Metric depth — [UniDepth](https://github.com/lpiccinelli-eth/UniDepth)
+- Monocular depth — [Depth Anything](https://github.com/LiheYoung/Depth-Anything)
+- Masks — [Track-Anything](https://github.com/gaomingqi/Track-Anything) (Segment Anything + XMem)
+- Cameras — [DROID-SLAM](https://github.com/princeton-vl/DROID-SLAM)
+- Tracks — [TAPIR](https://github.com/google-deepmind/tapnet)
 
 ## Installation
+```bash
+cd preproc
+./setup_dependencies.sh  # installs extra wheels, clones third-party repos, downloads checkpoints
+```
+The script expects you to run it inside the `monofusion` conda env from the main README. Re-run only when dependencies change.
 
-We provide a setup script in `setup_dependencies.sh` for updating the environment for preprocessing, and downloading the checkpoints.
+## Usage
+### 1. Prepare a data root
+Organize raw assets before touching the scripts:
 ```
-./setup_dependencies.sh
+<data_root>
+├── videos/
+│   ├── seq1.mp4
+│   └── seq2.mp4
+└── images/
+    ├── seq1
+    └── seq2
 ```
+Both `videos` and `images` are optional; mix them as needed.
 
-## Processing Custom Data
+### 2. Extract frames + masks
+```bash
+python mask_app.py --root_dir <data_root>
+```
+The Gradio UI lets you sample frames, draw foreground masks with Segment Anything, and refine them with XMem. Save the outputs per sequence (e.g., `images/SEQ_NAME`, `sam_v2_dyn_mask/SEQ_NAME`).
 
-We highly encourage users to structure their data directories in the following way:
+### 3. Generate priors
+```bash
+python process_custom.py --img-dirs <data_root>/images/** --gpus 0 1
 ```
-- data_root
-    '- videos
-    |   - seq1.mp4
-    |   - seq2.mp4
-[and/or]
-    '- images
-    |   - seq1
-    |   - seq2
-    '- ...
+This single entry point launches metric depth, mono depth, Track-Anything, TAPIR, DUSt3R, and SLAM back-to-back. Expect the following structure on completion:
 ```
+<data_root>/
+├── images/SEQ_NAME
+├── sam_v2_dyn_mask/SEQ_NAME
+├── unidepth_disp/SEQ_NAME
+├── unidepth_intrins/SEQ_NAME
+├── depth_anything/SEQ_NAME
+├── aligned_depth_anything/SEQ_NAME
+├── droid_recon/SEQ_NAME
+└── bootstapir/SEQ_NAME
+```
+Point your main training run at the mirrored copy under `MonoFusion/data/SEQ_NAME` if you prefer keeping derived assets inside the repo.
 
-Once you have structured your data this way, run the gradio app for extracting object masks:
+### 4. Optional single modules
+Every stage can be re-run independently:
+```bash
+python launch_metric_depth.py --img-dirs <data_root>/images/** --gpus 0
+python launch_depth.py        --img-dirs <data_root>/images/** --gpus 0
+python launch_slam.py         --img-dirs <data_root>/images/** --gpus 0
+python launch_tracks.py       --img-dirs <data_root>/images/** --gpus 0
 ```
-python mask_app.py --root_dir [data_root]
-```
-This GUI can be used for extracting frames from a video, and extracting video object masks using Segment-Anything and XMEM. Follow the instructions in the GUI to save these.
-![gradio interface](gradio_interface.png)
+Use these if one component fails or if you need to tweak parameters without touching the all-in-one script.
 
-To finish preprocessing, run
-```
-python process_custom.py --img-dirs [data_root]/images/** --gpus 0 1
-```
+### 5. TAPIR backends
+- Default: `tapnet_torch` (PyTorch) ships with this repo and works out of the box.
+- Optional: `tapnet` (JAX) lives as a submodule. For faster inference install TAPIR per its [official instructions](https://github.com/google-deepmind/tapnet) and run `compute_tracks_jax.py` instead of the torch implementation.
 
-The resulting file structure should be as follows:
-```
-- data_root
-    '- images
-    |   - ...
-    '- masks
-    |   - ...
-    '- unidepth_disp
-    |   - ...
-    '- unidepth_intrins
-    |   - ...
-    '- depth_anything
-    |   - ...
-    '- aligned_depth_anything
-    |   - ...
-    '- droid_recon
-    |   - ...
-    '- bootstapir
-        - ...
-```
-
-Now you're ready to run the main optimization!
-
-### Individual launch scripts
-If you'd like to run any part of the preprocessing separately, we've included the launch scripts `launch_depth.py`, `launch_metric_depth.py`, `launch_slam.py`, and `launch_tracks.py` for your convenience. Their usage is as follows:
-
-```
-python launch_depth.py --img-dirs [data_root]/images/** --gpus 0 1 ...
-```
-and so on for the others.
-
-### A note on TAPIR
-By default, we use the pytorch implementation of TAPIR in `tapnet_torch`. This is slightly slower than the Jax jitted version, in the `tapnet` submodule. We've included the Jax version of the script `compute_tracks_jax.py` in case you want to use and install `tapnet` and the Jax dependencies. Please refer to the [TAPNet readme](https://github.com/google-deepmind/tapnet) for those installation instructions. 
+Keep raw captures under `../raw_data/` or any path you pass to the scripts. Outputs are idempotent; re-running a stage overwrites the previous results.

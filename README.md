@@ -59,18 +59,6 @@ bash vis.sh ./results_<SEQ_NAME>/<RUN_NAME> 7007
 - `WORK_DIR` is the exact path produced in step 4.
 - Pick any open TCP port; the script launches `run_rendering.py` for inspection.
 
-## Directory Expectations
-- `raw_data/<SEQ_NAME>`: unprocessed Ego-Exo4D take plus `Dy_train_meta.json` from ExoRecon.
-- `data/<SEQ_NAME>`: priors from `process_custom.py` (depth, masks, DUSt3R, TAPIR).
-- `results_<SEQ_NAME>/<RUN>`: training logs, checkpoints, and rendered videos.
-- `preproc/ExoRecon`: official EgoRecon pipeline; always ensure it is up to date before step 2.
-
-## Todo List
-| Task | Status | Due Date |
-|------|--------|----------|
-| Drop data and environ build guide | ✅ Done | - |
-| Preprocessing scripts | ⏳ Todo | in a week |
-| Drop Code | ⏳ Todo | between ICLR and ICCV |
 
 ## Citation
 If you find our data, code processing, or project useful, please kindly consider citing our work: 
