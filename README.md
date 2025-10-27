@@ -1,48 +1,87 @@
-# MonoFusion
-Sparse-view 4D reconstruction pipeline for monocular captures. This repo wraps preprocessing (depth, masks, camera tracks), training, and visualization into five short actions.
+# (ICCV 25)MonoFusion: Sparse-View 4D Reconstruction via Monocular Fusion
+**[Project Page](https://ImNotPrepared.github.io/research/25_DSR/index.html) | [Arxiv](https://arxiv.org/abs/2507.23782) | [Data](https://drive.google.com/drive/folders/18H8OOOZLv7OmOen8pGbSLWwu8AvZAZro?usp=sharing)**
 
-## Quick Start
-1. **Set up the environment**
-   ```bash
-   git clone --recursive https://github.com/MonoFusion/MonoFusion.git
-   cd MonoFusion
-   conda create -n monofusion python=3.10
-   conda activate monofusion
-   pip install -r requirements.txt
-   pip install git+https://github.com/nerfstudio-project/gsplat.git
-   ```
-   *Preprocessing extras:* `cd preproc && ./setup_dependencies.sh` installs Track-Anything, TapNet, and downloads all checkpoints listed in `preproc/requirements_extra.txt`.
+[Zihan Wang](https://imnotprepared.github.io/), [Jeff Tan](https://jefftan969.github.io/), [Tarasha Khurana](https://www.cs.cmu.edu/~tkhurana/)\*, [Neehar Peri](https://www.neeharperi.com)\*, [Deva Ramanan](https://www.cs.cmu.edu/~deva/)
 
-2. **Stage raw data** – place every sequence under `./_raw_data/<SEQ_NAME>/`. Each folder should contain your source media, e.g. `images/frame_*.png` or `videos/<SEQ_NAME>.mp4`, plus optional masks (`sam_v2_dyn_mask`) if you already have them. The code also accepts `./raw_data/<SEQ_NAME>` if you prefer that name.
+Carnegie Mellon University
 
-3. **Process data into priors**
-   ```bash
-   cd preproc
-   python process_custom.py --img-dirs ../_raw_data/<SEQ_NAME>/images --gpus 0 1
-   ```
-   This single command runs depth, masks, TAPIR tracks, and DUSt3R alignment. When it finishes you should see `../data/<SEQ_NAME>/` with subfolders such as `aligned_depth_anything`, `dust3r_scene_graph`, `droid_recon`, and `bootstapir`.
+\* Equal Contribution
 
-4. **Train on a scene**
-   ```bash
-   # Edit opt.sh line 12 so SEQ_NAME matches your folder (e.g. "_indiana_piano_14_4").
-   bash opt.sh <experiment_prefix>
-   ```
-   `opt.sh` wraps `dance_glb.py`, appends a timestamp to the prefix, and writes results to `./results_${SEQ_NAME}/<experiment_prefix>_<timestamp>/`. You can customize training indices or optimizer knobs by editing the script or calling `python dance_glb.py --seq_name <SEQ_NAME> --exp <NAME> [extra Tyro args]` directly.
+## Installation
+```bash
+git clone --recursive https://github.com/MonoFusion/MonoFusion.git
+cd MonoFusion
+conda create -n monofusion python=3.10
+conda activate monofusion
+pip install -r requirements.txt
+pip install git+https://github.com/nerfstudio-project/gsplat.git
+# extra deps for preprocessing
+cd preproc && ./setup_dependencies.sh && cd -
+```
 
-5. **Visualize**
-   ```bash
-   bash vis.sh ./results_${SEQ_NAME}/<RUN_NAME> 7007
-   ```
-   Pass the exact work directory from step 4 and any open TCP port; `vis.sh` launches `run_rendering.py` for interactive inspection.
+## Usage
+### 1. Environment
+- Keep everything inside the `monofusion` conda env created above.
+- GPU drivers must match the CUDA wheels declared in `requirements.txt` (defaults to CUDA 11.x).
+
+### 2. Raw data via ExoRecon (`./raw_data/SEQ_NAME`)
+- `cd preproc/ExoRecon` and follow `README.md` there:
+  ```bash
+  conda env create -f egorecon.yml
+  conda activate egorecon
+  python -m pip install -e projectaria_tools_pkg
+  ./push_all_data.sh  # downloads + restructures Ego-Exo4D takes
+  ```
+- Each take should end up as `MonoFusion/raw_data/<SEQ_NAME>/` containing `aria01.vrs`, `frame_aligned_videos/`, `trajectory/Dy_train_meta.json`, and `timestep.txt`.
+
+### 3. Priors (`./data/SEQ_NAME`)
+```bash
+cd preproc
+python process_custom.py \
+  --img-dirs ../raw_data/<SEQ_NAME>/images \
+  --gpus 0 1
+```
+- Generates depth, masks, TAPIR tracks, and DUSt3R alignment into `../data/<SEQ_NAME>/`.
+- Re-run whenever raw inputs change; outputs are overwritten safely.
+
+### 4. Train (`bash opt.sh`)
+```bash
+# edit opt.sh so SEQ_NAME matches _<SEQ_NAME> used during preprocessing
+bash opt.sh <experiment_prefix>
+```
+- The script appends a timestamp, calls `dance_glb.py`, logs to `./results_<SEQ_NAME>/<experiment_prefix>_<timestamp>/`, and saves checkpoints under `checkpoints/` inside that folder.
+- Advanced runs can invoke `python dance_glb.py --seq_name <SEQ_NAME> --exp <NAME> [Tyro args]` directly.
+
+### 5. Visualize (`bash vis.sh <WORK_DIR> <PORT>`)
+```bash
+bash vis.sh ./results_<SEQ_NAME>/<RUN_NAME> 7007
+```
+- `WORK_DIR` is the exact path produced in step 4.
+- Pick any open TCP port; the script launches `run_rendering.py` for inspection.
 
 ## Directory Expectations
-- `_raw_data/<SEQ_NAME>` – raw captures plus metadata (`trajectory/Dy_train_meta.json` if available). Used for preprocessing and to fetch camera priors.
-- `data/<SEQ_NAME>` – auto-generated priors consumed by `flow3d` during training.
-- `results_${SEQ_NAME}/<RUN>` – experiment logs, checkpoints (`checkpoints/last.ckpt`), and video dumps.
-- `preproc/` – third-party tools and scripts (`mask_app.py`, `process_custom.py`, DUSt3R, TAPIR, etc.). Run everything here inside the conda env you created above.
+- `raw_data/<SEQ_NAME>`: unprocessed Ego-Exo4D take plus `Dy_train_meta.json` from ExoRecon.
+- `data/<SEQ_NAME>`: priors from `process_custom.py` (depth, masks, DUSt3R, TAPIR).
+- `results_<SEQ_NAME>/<RUN>`: training logs, checkpoints, and rendered videos.
+- `preproc/ExoRecon`: official EgoRecon pipeline; always ensure it is up to date before step 2.
 
-## Tips
-- Make sure your GPU drivers match the CUDA wheels you select in `requirements.txt` (defaults target CUDA 11.2/12.x).
-- `process_custom.py` accepts multiple `--img-dirs` in one call; mix and match GPUs via `--gpus` for throughput.
-- If `_infer_raw_scene_dir` cannot locate your sequence during training, double-check the leading underscore convention (e.g. `_scene_01` instead of `scene_01`).
-- `wandb` logging is enabled by default; export `WANDB_API_KEY` before launching training if you want the run to sync online.
+## Todo List
+| Task | Status | Due Date |
+|------|--------|----------|
+| Drop data and environ build guide | ✅ Done | - |
+| Preprocessing scripts | ⏳ Todo | in a week |
+| Drop Code | ⏳ Todo | between ICLR and ICCV |
+
+## Citation
+If you find our data, code processing, or project useful, please kindly consider citing our work: 
+```
+@misc{wang2025monofusionsparseview4dreconstruction,
+      title={MonoFusion: Sparse-View 4D Reconstruction via Monocular Fusion}, 
+      author={Zihan Wang and Jeff Tan and Tarasha Khurana and Neehar Peri and Deva Ramanan},
+      year={2025},
+      eprint={2507.23782},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2507.23782}, 
+}
+```
