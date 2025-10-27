@@ -1,73 +1,48 @@
-# Shape of Motion: 4D Reconstruction from a Single Video
-**[Project Page](https://shape-of-motion.github.io/) | [Arxiv](https://arxiv.org/abs/2407.13764)**
+# MonoFusion
+Sparse-view 4D reconstruction pipeline for monocular captures. This repo wraps preprocessing (depth, masks, camera tracks), training, and visualization into five short actions.
 
-[Qianqian Wang](https://qianqianwang68.github.io/)<sup>1,2</sup>*, [Vickie Ye](https://people.eecs.berkeley.edu/~vye/)<sup>1</sup>\*, [Hang Gao](https://hangg7.com/)<sup>1</sup>\*, [Jake Austin](https://www.linkedin.com/in/jakeaustin4701)<sup>1</sup>, [Zhengqi Li](https://zhengqili.github.io/)<sup>2</sup>, [Angjoo Kanazawa](https://people.eecs.berkeley.edu/~kanazawa/)<sup>1</sup>
+## Quick Start
+1. **Set up the environment**
+   ```bash
+   git clone --recursive https://github.com/MonoFusion/MonoFusion.git
+   cd MonoFusion
+   conda create -n monofusion python=3.10
+   conda activate monofusion
+   pip install -r requirements.txt
+   pip install git+https://github.com/nerfstudio-project/gsplat.git
+   ```
+   *Preprocessing extras:* `cd preproc && ./setup_dependencies.sh` installs Track-Anything, TapNet, and downloads all checkpoints listed in `preproc/requirements_extra.txt`.
 
-<sup>1</sup>UC Berkeley   &nbsp;  <sup>2</sup>Google Research
+2. **Stage raw data** – place every sequence under `./_raw_data/<SEQ_NAME>/`. Each folder should contain your source media, e.g. `images/frame_*.png` or `videos/<SEQ_NAME>.mp4`, plus optional masks (`sam_v2_dyn_mask`) if you already have them. The code also accepts `./raw_data/<SEQ_NAME>` if you prefer that name.
 
-\* Equal Contribution
+3. **Process data into priors**
+   ```bash
+   cd preproc
+   python process_custom.py --img-dirs ../_raw_data/<SEQ_NAME>/images --gpus 0 1
+   ```
+   This single command runs depth, masks, TAPIR tracks, and DUSt3R alignment. When it finishes you should see `../data/<SEQ_NAME>/` with subfolders such as `aligned_depth_anything`, `dust3r_scene_graph`, `droid_recon`, and `bootstapir`.
 
+4. **Train on a scene**
+   ```bash
+   # Edit opt.sh line 12 so SEQ_NAME matches your folder (e.g. "_indiana_piano_14_4").
+   bash opt.sh <experiment_prefix>
+   ```
+   `opt.sh` wraps `dance_glb.py`, appends a timestamp to the prefix, and writes results to `./results_${SEQ_NAME}/<experiment_prefix>_<timestamp>/`. You can customize training indices or optimizer knobs by editing the script or calling `python dance_glb.py --seq_name <SEQ_NAME> --exp <NAME> [extra Tyro args]` directly.
 
+5. **Visualize**
+   ```bash
+   bash vis.sh ./results_${SEQ_NAME}/<RUN_NAME> 7007
+   ```
+   Pass the exact work directory from step 4 and any open TCP port; `vis.sh` launches `run_rendering.py` for interactive inspection.
 
-## Installation
+## Directory Expectations
+- `_raw_data/<SEQ_NAME>` – raw captures plus metadata (`trajectory/Dy_train_meta.json` if available). Used for preprocessing and to fetch camera priors.
+- `data/<SEQ_NAME>` – auto-generated priors consumed by `flow3d` during training.
+- `results_${SEQ_NAME}/<RUN>` – experiment logs, checkpoints (`checkpoints/last.ckpt`), and video dumps.
+- `preproc/` – third-party tools and scripts (`mask_app.py`, `process_custom.py`, DUSt3R, TAPIR, etc.). Run everything here inside the conda env you created above.
 
-```
-git clone --recurse-submodules https://github.com/vye16/shape-of-motion
-cd shape-of-motion/
-conda create -n som python=3.10
-conda activate som
-```
-
-Update `requirements.txt` with correct CUDA version for PyTorch and cuUML,
-i.e., replacing `cu122` and `cu12` with your CUDA version.
-```
-
-pip install -r requirements.txt
-pip install git+https://github.com/nerfstudio-project/gsplat.git
-```
-
-## Usage
-
-### Preprocessing
-
-We depend on the third-party libraries in `preproc` to generate depth maps, object masks, camera estimates, and 2D tracks.
-Please follow the guide in the [preprocessing README](./preproc/README.md).
-
-### Fitting to a Video
-
-```python
-python run_training.py \
-  --work-dir <OUTPUT_DIR> \
-  data:davis \
-  --data.seq-name horsejump-low
-```
-
-## Evaluation on iPhone Dataset
-First, download our processed iPhone dataset from [this](https://drive.google.com/drive/folders/1xJaFS_3027crk7u36cue7BseAX80abRe?usp=sharing) link. To train on a sequence, e.g., *paper-windmill*, run:
-
-```python
-python run_training.py \
-  --work-dir <OUTPUT_DIR> \
-  --port <PORT> \
-  data:iphone \
-  --data.data-dir </path/to/paper-windmill/>
-```
-
-After optimization, the numerical result can be evaluated via:
-```
-PYTHONPATH='.' python scripts/evaluate_iphone.py \
-  --data_dir </path/to/paper-windmill/> \
-  --result_dir <OUTPUT_DIR> \
-  --seq_names paper-windmill
-```
-
-
-## Citation
-```
-@inproceedings{som2024,
-  title     = {Shape of Motion: 4D Reconstruction from a Single Video},
-  author    = {Wang, Qianqian and Ye, Vickie and Gao, Hang and Austin, Jake and Li, Zhengqi and Kanazawa, Angjoo},
-  journal   = {arXiv preprint arXiv:2407.13764},
-  year      = {2024}
-}
-```
+## Tips
+- Make sure your GPU drivers match the CUDA wheels you select in `requirements.txt` (defaults target CUDA 11.2/12.x).
+- `process_custom.py` accepts multiple `--img-dirs` in one call; mix and match GPUs via `--gpus` for throughput.
+- If `_infer_raw_scene_dir` cannot locate your sequence during training, double-check the leading underscore convention (e.g. `_scene_01` instead of `scene_01`).
+- `wandb` logging is enabled by default; export `WANDB_API_KEY` before launching training if you want the run to sync online.
