@@ -254,7 +254,6 @@ def main(cfgs: List[TrainConfig]):
 
     train_dataset = [train[2] for train in train_list]
     train_datasets = [train_dataset[i] for i in train_indices]
-    print(len(train_dataset), len(train_datasets))
 
     syn_dataset = SynchornizedDataset(train_datasets)
     syn_dataloader = DataLoader(
@@ -542,8 +541,6 @@ def init_model_from_unified_tracks(
           combined_bg_feats = combined_bg_feats.repeat(N, 1)
           combined_bg_sizes = combined_bg_sizes.repeat(N, 1)
           combined_bg_sizes = combined_bg_sizes.reshape(-1)
-          print(combined_bg_points.shape,combined_bg_sizes.shape)
-
         combined_bg_data = (
             combined_bg_points,
             combined_bg_normals,
@@ -568,8 +565,6 @@ if __name__ == "__main__":
     import argparse
     import torch
     torch.multiprocessing.set_sharing_strategy('file_system')
-
-
 
     parser = argparse.ArgumentParser(description="Wandb Training Script")
     parser.add_argument(
@@ -598,21 +593,6 @@ if __name__ == "__main__":
     
     work_dir = f'./results{seq_name}/{args.exp}/'
     wandb.init(name=work_dir.split('/')[-1])
-    '''
-    def load_depth(self, index) -> torch.Tensor:
-    #  load_da2_depth load_duster_depth load_org_depth
-    if self.depth_type == 'modest':
-        depth = self.load_modest_depth(index)
-    elif self.depth_type == 'da2':
-        depth = self.load_da2_depth(index)
-    elif self.depth_type == 'dust3r':
-        depth = self.load_modest_depth(index)       
-    elif self.depth_type == 'monst3r':
-        depth = self.load_monster_depth(index)    
-    elif self.depth_type == 'monst3r+dust3r':
-        depth = self.load_duster_moncheck_depth(index) 
-    '''
-
     def find_missing_number(nums):
         full_set = {0, 1, 2, 3}
         missing_number = full_set - set(nums)
@@ -621,7 +601,6 @@ if __name__ == "__main__":
     if len(train_indices) != 4:
       work_dir += f'roll_out_cam_{find_missing_number(train_indices)}'
     
-    print(work_dir)
     import tyro
     data_root = str(DATA_ROOT.resolve())
     try:
@@ -630,85 +609,31 @@ if __name__ == "__main__":
     except FileNotFoundError as exc:
         guru.warning(str(exc))
         raw_meta_path = ""
-    if seq_name == 'olddance':
-      configs = [
-          TrainConfig(
-              work_dir=work_dir,
-              data=CustomDataConfig(
-                  seq_name=f"{category}_undist_cam0{i+1}",
-                  root_dir=data_root,
-                  video_name=seq_name,
-                  depth_type=depth_type,
-              ),
-              # Pass the unknown arguments to tyro.cli
-              lr=tyro.cli(SceneLRConfig, args=remaining_args),
-              loss=tyro.cli(LossesConfig, args=remaining_args),
-              optim=tyro.cli(OptimizerConfig, args=remaining_args),
-              train_indices=train_indices,
-              test_w2cs=raw_meta_path,
-              seq_name=seq_name
-          )
-          for i in range(4)
-      ]
-    elif 'panoptic' in seq_name:
-      cam_dict = {
-        '1':3,
-        '2':21,
-        '3':23,
-        '4':25,
-      }
-      configs = [
-          TrainBikeConfig(
-              work_dir=work_dir,
-              data=CustomDataConfig(
-                  seq_name=f"{category}_undist_cam{cam_dict[str(i+1)]:02d}",
-                  root_dir=data_root,
-                  video_name=seq_name,
-                  depth_type=depth_type,
-                  super_fast=False
-              ),
-              # Pass the unknown arguments to tyro.cli
-              lr=tyro.cli(SceneLRConfig, args=remaining_args),
-              loss=tyro.cli(LossesConfig, args=remaining_args),
-              optim=tyro.cli(OptimizerConfig, args=remaining_args),
-              train_indices=train_indices,
-              test_w2cs=raw_meta_path,
-              seq_name=seq_name
-          )
-          for i in range(4)
-      ]     
 
-      ### panoptic testing data:
-      # real: [1, 3, 8, 13, 19, 21] (start with 0)
-      # test_real [0, 10, 15, 30]
-      # amend_wrong: [0, 2, 7, 11, 16, 18]
-      # amend_correct: [2, 4, 9, 11, 16, 18]
-      # /data3/zihanwa3/Capstone-DSR/raw_data/unc_basketball_03-16-23_01_18/trajectory/Dy_train_meta.json
-    else:
-      cam_dict = {
-        '1':1,
-        '2':2,
-        '3':3,
-        '4':4,
-      }
-      configs = [
-          TrainBikeConfig(
-              work_dir=work_dir,
-              data=CustomDataConfig(
-                  seq_name=f"{category}_undist_cam{cam_dict[str(i+1)]:02d}",
-                  root_dir=data_root,
-                  video_name=seq_name,
-                  depth_type=depth_type,
-                  super_fast=False
-              ),
-              # Pass the unknown arguments to tyro.cli
-              lr=tyro.cli(SceneLRConfig, args=remaining_args),
-              loss=tyro.cli(LossesConfig, args=remaining_args),
-              optim=tyro.cli(OptimizerConfig, args=remaining_args),
-              train_indices=train_indices,
-              test_w2cs=raw_meta_path,
-              seq_name=seq_name
-          )
-          for i in range(4)
-      ]           
+    cam_dict = {
+      '1':1,
+      '2':2,
+      '3':3,
+      '4':4,
+    }
+    configs = [
+        TrainBikeConfig(
+            work_dir=work_dir,
+            data=CustomDataConfig(
+                seq_name=f"{category}_undist_cam{cam_dict[str(i+1)]:02d}",
+                root_dir=data_root,
+                video_name=seq_name,
+                depth_type=depth_type,
+                super_fast=False
+            ),
+            # Pass the unknown arguments to tyro.cli
+            lr=tyro.cli(SceneLRConfig, args=remaining_args),
+            loss=tyro.cli(LossesConfig, args=remaining_args),
+            optim=tyro.cli(OptimizerConfig, args=remaining_args),
+            train_indices=train_indices,
+            test_w2cs=raw_meta_path,
+            seq_name=seq_name
+        )
+        for i in range(4)
+    ]           
     main(configs)

@@ -27,17 +27,10 @@ class Renderer:
         self.model = model
 
 
-        self.pc_dict = {
-          'bike': ['/data3/zihanwa3/Capstone-DSR/Processing/dinov2features/', 111],
-          'dance': ['/data3/zihanwa3/Capstone-DSR/Processing_dance/dinov2features/', 222],
-        }
-
-        self.data_path = self.pc_dict[seq_name][0]
         self.seq_name = seq_name
 
 
         self.feat_base = None
-        #with open(self.data_path+'fitted_pca_model.pkl', 'rb') as f:
         #  self.feat_base = pickle.load(f)
 
 

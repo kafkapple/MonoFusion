@@ -37,3 +37,8 @@ nvdiffrast
 open3d
 gsplat
 wandb
+mediapy
+einshape
+transformer 
+hydra-core>=1.3.2
+einops

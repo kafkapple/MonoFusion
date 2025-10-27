@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class FGLRConfig:
-    means: float = 1.6e-3
+    means: float = 1.6e-4
     opacities: float = 1e-2
     scales: float = 5e-4
     quats: float = 1e-3
@@ -15,7 +15,7 @@ class FGLRConfig:
 @dataclass
 class BGLRConfig:
     means: float = 1.6e-9
-    opacities: float = 1e-4
+    opacities: float = 1e-7
     scales: float = 1e-6
     quats: float = 1e-6
     colors: float = 1e-7#1e-2
@@ -46,8 +46,8 @@ class SceneLRConfig:
 @dataclass
 class LossesConfig:
     w_rgb: float = 5.0
-    w_feat: float = 1.5#3.0 #0.01
-    w_depth_reg: float = 1e-4
+    w_feat: float = 1.5
+    w_depth_reg: float = 0.0
     w_depth_const: float = 0.000
     w_depth_grad: float = 0.0
     w_track: float = 2.0
