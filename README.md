@@ -20,11 +20,7 @@ cd preproc && ./setup_dependencies.sh && cd -
 ```
 
 ## Usage
-### 1. Environment
-- Keep everything inside the `monofusion` conda env created above.
-- GPU drivers must match the CUDA wheels declared in `requirements.txt` (defaults to CUDA 11.x).
-
-### 2. Raw data via ExoRecon (`./raw_data/SEQ_NAME`)
+### 1. Raw data via [ExoRecon](preproc/ExoRecon/README.md) (`./raw_data/SEQ_NAME`)
 - `cd preproc/ExoRecon` and follow `README.md` there:
   ```bash
   conda env create -f egorecon.yml
@@ -34,16 +30,16 @@ cd preproc && ./setup_dependencies.sh && cd -
   ```
 - Each take should end up as `MonoFusion/raw_data/<SEQ_NAME>/` containing `aria01.vrs`, `frame_aligned_videos/`, `trajectory/Dy_train_meta.json`, and `timestep.txt`.
 
-### 3. Get ALL Priors (``)
+### 2. Get Priors (`./data/SEQ_NAME`)
 ```bash
 cd preproc
 python process_custom.py \
-  --img-dirs ../raw_data/images/<SEQ> \
-  --gpus 0 1 2 3
+  --img-dirs ../raw_data/<SEQ_NAME>/images \
+  --gpus 0 1
 ```
 - Generates depth, masks, TAPIR tracks, and DUSt3R alignment into `../data/<SEQ_NAME>/`.
 
-### 4. Train (`bash opt.sh`)
+### 3. Train (`bash opt.sh`)
 ```bash
 # edit opt.sh so SEQ_NAME matches _<SEQ_NAME> used during preprocessing
 bash opt.sh <experiment_prefix>
@@ -51,7 +47,7 @@ bash opt.sh <experiment_prefix>
 - The script appends a timestamp, calls `dance_glb.py`, logs to `./results_<SEQ_NAME>/<experiment_prefix>_<timestamp>/`, and saves checkpoints under `checkpoints/` inside that folder.
 - Advanced runs can invoke `python dance_glb.py --seq_name <SEQ_NAME> --exp <NAME> [Tyro args]` directly.
 
-### 5. Visualize
+### 4. Visualize
 ```bash
 bash vis.sh ./results_<SEQ_NAME>/<RUN_NAME> 7007
 ```

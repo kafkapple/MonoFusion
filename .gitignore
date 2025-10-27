@@ -10,3 +10,4 @@
 
 # Don't ignore directories (so git can traverse them)
 !*/
+.editorconfig
