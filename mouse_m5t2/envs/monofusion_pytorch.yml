@@ -1,0 +1,50 @@
+# MonoFusion Main PyTorch Environment
+# DUSt3R + MoGe + DINOv2 + gsplat training
+# gpu03: CUDA Driver 13.0 / RTX PRO 6000 Blackwell sm_120 + RTX A6000 sm_86
+#
+# Install: conda env create -f monofusion_pytorch.yml
+# Post-install: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# Activate: conda activate monofusion_pytorch
+#
+# Note: cu128 required for Blackwell (sm_120). cu126 does NOT support sm_120.
+
+name: monofusion_pytorch
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy=1.26.4
+  - pip
+  - pip:
+    # PyTorch cu128 (Blackwell sm_120 + A6000 sm_86)
+    - torch==2.11.0+cu128
+    - torchvision==0.26.0+cu128
+    - --index-url https://download.pytorch.org/whl/cu128
+    # Gaussian Splatting
+    - gsplat==1.5.3
+    # Preprocessing dependencies
+    - tyro==1.0.11
+    - roma==1.5.6
+    - einops==0.8.2
+    - trimesh==4.11.5
+    - huggingface-hub[torch]>=0.22
+    - gradio==6.10.0
+    - tensorboard==2.20.0
+    - imageio==2.37.3
+    - pandas==2.3.3
+    - scikit-learn==1.7.2
+    - scipy==1.15.3
+    - opencv-python==4.11.0.86
+    - matplotlib==3.10.8
+    - mediapy==1.2.6
+    - pillow
+    - tqdm
+    # DINOv2 (via torch.hub, no separate install)
+    # MoGe (loaded from preproc/MoGE/, model via HuggingFace)
+    # DUSt3R (loaded from preproc/Dust3R/, model via HuggingFace)
+    # Training dependencies (install when needed)
+    # - loguru
+    # - wandb
+    # - torchmetrics
+    # - lpips
+    # - pytorch-msssim

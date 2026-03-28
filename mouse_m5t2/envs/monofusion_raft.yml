@@ -1,0 +1,28 @@
+# MonoFusion SEA-RAFT Environment (Optional)
+# Optical flow — requires CUDA 12.2
+# gpu03: CUDA Driver 13.0, A6000 sm_86
+#
+# Install: conda env create -f monofusion_raft.yml
+# Activate: conda activate monofusion_raft
+
+name: monofusion_raft
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy=1.26.4
+  - scipy
+  - pillow
+  - tqdm
+  - pip
+  - pip:
+    # PyTorch cu121 (closest available to cu122)
+    - torch==2.2.0+cu121
+    - torchvision==0.17.0+cu121
+    - --index-url https://download.pytorch.org/whl/cu121
+    # SEA-RAFT will be installed from source
+    - einops
+    - opencv-python-headless
+    - imageio

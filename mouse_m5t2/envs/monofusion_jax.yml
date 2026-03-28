@@ -1,0 +1,37 @@
+# MonoFusion TAPNet/BootsTAPIR Environment
+# JAX-based point tracking — isolated from PyTorch
+# gpu03: CUDA Driver 13.0
+#
+# IMPORTANT: JAX 0.4.30 does NOT support Blackwell (sm_120).
+#            TAPNet must run on A6000 GPUs (4-7, sm_86) only.
+#
+# Install: conda env create -f monofusion_jax.yml
+# Activate: conda activate monofusion_jax
+
+name: monofusion_jax
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy=1.26.4
+  - scipy=1.15.2
+  - pillow
+  - tqdm
+  - imageio
+  - pip
+  - pip:
+    # JAX with CUDA 12 (sm_86 A6000 only, NOT sm_120 Blackwell)
+    - --find-links https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    - jax[cuda12_pip]==0.4.30
+    # Haiku (TAPNet's neural network library)
+    - dm-haiku==0.0.12
+    - optax==0.2.3
+    - chex==0.1.86
+    - flax==0.9.0
+    # TAPNet
+    - git+https://github.com/google-deepmind/tapnet.git
+    # Required by tapnet.__init__ (unconditional import)
+    - tensorflow-cpu==2.21.0
+    - tensorflow-datasets==4.9.9
+    # Utilities
+    - mediapy==1.2.6
