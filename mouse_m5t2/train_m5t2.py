@@ -1,3 +1,4 @@
+# no-split: single training workflow — init→dataset→train→checkpoint must stay cohesive
 """
 MonoFusion training wrapper for M5t2 mouse dataset.
 
@@ -26,16 +27,21 @@ sys.path.insert(0, str(MONOFUSION_ROOT / "preproc" / "Dust3R"))
 
 
 def patch_casual_dataset():
-    """Monkey-patch CasualDataset to support M5t2 camera format."""
+    """Monkey-patch CasualDataset to support M5t2 camera format.
+
+    Fixes in casual_dataset.py for M5t2 data:
+    1. Sets correct default kwargs (depth_type, track_type, etc.)
+    2. Patches load_known_cameras: range(0,300,3) �� range(0,T,1)
+       and camera index extraction for M5t2 naming convention.
+    """
     from flow3d.data.casual_dataset import CasualDataset
 
     original_init = CasualDataset.__init__
 
     def patched_init(self, *args, **kwargs):
-        # Intercept video_name to detect M5t2
         video_name = kwargs.get("video_name", "")
         if "m5t2" in video_name.lower() or "m5t2" in kwargs.get("seq_name", "").lower():
-            kwargs.setdefault("depth_type", "aligned_moge_depth")
+            kwargs.setdefault("depth_type", "moge")
             kwargs.setdefault("track_2d_type", "tapir")
             kwargs.setdefault("mask_type", "masks")
             kwargs.setdefault("image_type", "images")
@@ -124,10 +130,33 @@ def main():
     parser.add_argument("--num_motion_bases", type=int, default=10)
     parser.add_argument("--num_epochs", type=int, default=50)
     parser.add_argument("--output_dir", type=str, default=None)
+    parser.add_argument("--wandb_project", type=str, default="monofusion-m5t2")
+    parser.add_argument("--wandb_name", type=str, default=None)
+    parser.add_argument("--no_wandb", action="store_true")
     args = parser.parse_args()
 
     if args.output_dir is None:
         args.output_dir = str(Path(args.data_root) / "results")
+
+    # Initialize wandb (following FaceLift pattern)
+    import wandb
+    if args.no_wandb:
+        wandb.init(mode="disabled")
+    else:
+        run_name = args.wandb_name or f"v5_{Path(args.data_root).name}"
+        wandb.init(
+            project=args.wandb_project,
+            name=run_name,
+            config={
+                "data_root": args.data_root,
+                "num_fg": args.num_fg,
+                "num_bg": args.num_bg,
+                "num_motion_bases": args.num_motion_bases,
+                "num_epochs": args.num_epochs,
+                "output_dir": args.output_dir,
+            },
+            dir=args.output_dir,
+        )
 
     print("=" * 60)
     print("MonoFusion M5t2 PoC Training")
@@ -217,8 +246,22 @@ def main():
     # Load trainer from checkpoint
     from flow3d.configs import FGLRConfig, BGLRConfig, MotionLRConfig
     lr_cfg = SceneLRConfig(fg=FGLRConfig(), bg=BGLRConfig(), motion_bases=MotionLRConfig())
-    loss_cfg = LossesConfig()
-    optim_cfg = OptimizerConfig()
+    # M5t2-tuned settings:
+    # - w_feat: 1.5 → 0.3 (384d raw features vs paper's 32d PCA)
+    # - w_depth_reg: 0.0 → 0.5 (paper default, geometric regularization)
+    # - max_steps: dynamically computed from dataset size
+    loss_cfg = LossesConfig(w_feat=0.3, w_depth_reg=0.5)
+    # Compute steps/epoch from actual dataset: frames / batch_size
+    n_frames = len(datasets[0].frame_names)
+    batch_size = 4
+    steps_per_epoch = n_frames // batch_size
+    total_steps = args.num_epochs * steps_per_epoch
+    print(f"  Steps/epoch: {steps_per_epoch} ({n_frames} frames / {batch_size} batch)")
+    print(f"  Total steps: {total_steps} ({args.num_epochs} epochs × {steps_per_epoch})")
+    optim_cfg = OptimizerConfig(
+        max_steps=total_steps,
+        stop_densify_steps=total_steps // 2,  # densify through first 50% of training
+    )
 
     trainer, start_epoch = Trainer.init_from_checkpoint(
         ckpt_path, device, lr_cfg, loss_cfg, optim_cfg,
@@ -229,8 +272,8 @@ def main():
     train_loaders = []
     for ds in datasets:
         loader = torch.utils.data.DataLoader(
-            ds, batch_size=4, num_workers=2,
-            persistent_workers=True,
+            ds, batch_size=batch_size, num_workers=0,
+            persistent_workers=False,
             collate_fn=BaseDataset.train_collate_fn,
         )
         train_loaders.append(loader)
@@ -243,28 +286,190 @@ def main():
     print(f"  Motion bases: {args.num_motion_bases}")
 
     from tqdm import tqdm
+    import glob
+    import imageio
+
+    best_loss = float("inf")
+    epoch_losses = []
+    ckpt_dir = work_dir / "checkpoints"
+    preview_dir = work_dir / "previews"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    preview_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_ckpt(path, epoch, loss_val=None, tag=""):
+        torch.save({
+            "model": trainer.model.state_dict(),
+            "optimizers": {k: v.state_dict() for k, v in trainer.optimizers.items()},
+            "schedulers": {k: v.state_dict() for k, v in trainer.scheduler.items()},
+            "epoch": epoch,
+            "global_step": trainer.global_step,
+            "avg_loss": loss_val,
+        }, path)
+        print(f"  Checkpoint saved: {os.path.basename(path)} {tag}")
+        print(f"  Gaussians: {trainer.model.num_gaussians}")
+
+    def cleanup_old_ckpts(keep_n=2):
+        """Keep only the most recent N epoch checkpoints + best.ckpt."""
+        ckpts = sorted(glob.glob(str(ckpt_dir / "epoch_*.ckpt")))
+        for old in ckpts[:-keep_n]:
+            os.remove(old)
+            print(f"  Removed old checkpoint: {os.path.basename(old)}")
+
+    def save_preview(epoch):
+        """Render cam0 frame0: GT vs predicted side-by-side."""
+        try:
+            with torch.no_grad():
+                w2c = trainer.model.w2cs[0:1].to(device)
+                K = trainer.model.Ks[0:1].to(device)
+                out = trainer.model.render(
+                    t=0, w2cs=w2c, Ks=K, img_wh=(512, 512),
+                    return_color=True, return_feat=False,
+                )
+                rendered = out["img"][0].clamp(0, 1).cpu().numpy()
+                rendered_u8 = (rendered * 255).astype(np.uint8)
+
+                # Load GT image for comparison
+                gt_img = datasets[0].get_image(0)
+                if hasattr(gt_img, 'numpy'):
+                    gt_img = gt_img.numpy()
+                if gt_img.max() <= 1.0:
+                    gt_img = (gt_img * 255).astype(np.uint8)
+                if gt_img.shape[:2] != rendered_u8.shape[:2]:
+                    import cv2
+                    gt_img = cv2.resize(gt_img, (rendered_u8.shape[1], rendered_u8.shape[0]))
+
+                # Side-by-side: GT | Rendered
+                combined = np.concatenate([gt_img[:, :, :3], rendered_u8], axis=1)
+                path = str(preview_dir / f"epoch_{epoch:04d}_gt_vs_pred.png")
+                imageio.imwrite(path, combined)
+                print(f"  Preview saved: {os.path.basename(path)}")
+        except Exception as e:
+            print(f"  Preview failed: {e}")
+
     for epoch in (pbar := tqdm(range(start_epoch, args.num_epochs),
                                 initial=start_epoch, total=args.num_epochs)):
         trainer.set_epoch(epoch)
+        step_losses = []
         for batches in zip(*train_loaders):
             batches = [to_device(batch, device) for batch in batches]
             loss = trainer.train_step(batches)
             loss.backward()
             trainer.op_af_bk()
-            pbar.set_description(f"Loss: {loss:.6f}")
+            step_losses.append(loss.item())
+            pbar.set_description(f"Loss: {loss.item():.6f}")
 
-        # Save checkpoint periodically
-        if epoch % 10 == 0 or epoch == args.num_epochs - 1:
-            save_path = str(work_dir / "checkpoints" / f"epoch_{epoch:04d}.ckpt")
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            torch.save({
-                "model": trainer.model.state_dict(),
-                "epoch": epoch,
-                "global_step": trainer.global_step,
-            }, save_path)
-            print(f"\n  Checkpoint saved: {save_path}")
+        avg_loss = sum(step_losses) / len(step_losses) if step_losses else 0
+        epoch_losses.append(avg_loss)
+        print(f"\n  Epoch {epoch}: avg_loss={avg_loss:.6f} ({len(step_losses)} steps)")
 
-    print(f"\nTraining complete! Final checkpoint at {work_dir}/checkpoints/")
+        # Wandb epoch logging (FaceLift pattern: train/* namespace)
+        log_dict = {
+            "train/epoch_loss": avg_loss,
+            "train/epoch": epoch,
+            "train/global_step": trainer.global_step,
+            "train/num_gaussians": trainer.model.num_gaussians,
+            "train/num_fg_gaussians": trainer.model.num_fg_gaussians,
+            "train/best_loss": best_loss,
+        }
+        # Log per-component losses from trainer stats if available
+        if hasattr(trainer, 'stats') and trainer.stats:
+            for k, v in trainer.stats.items():
+                if isinstance(v, (int, float)):
+                    log_dict[f"loss/{k}"] = v
+
+        # Motion metrics (cheap scalars, every epoch)
+        try:
+            with torch.no_grad():
+                t0, t1 = 0, min(1, n_frames - 1)
+                ts_pair = torch.tensor([t0, t1], device=device)
+                means_pair, _ = trainer.model.compute_poses_fg(ts_pair)  # (G, 2, 3)
+                flow_vec = means_pair[:, 1] - means_pair[:, 0]  # (G, 3)
+                flow_mag = flow_vec.norm(dim=-1)  # (G,)
+                log_dict["motion/flow_mean"] = flow_mag.mean().item()
+                log_dict["motion/flow_max"] = flow_mag.max().item()
+                log_dict["motion/flow_std"] = flow_mag.std().item()
+
+                # Motion basis utilization + entropy
+                coefs_raw = trainer.model.fg.params["motion_coefs"]  # (G, K)
+                probs = torch.softmax(coefs_raw, dim=-1)  # (G, K)
+                utilization = probs.mean(dim=0)  # (K,)
+                for k_idx in range(utilization.shape[0]):
+                    log_dict[f"motion/basis_{k_idx}_util"] = utilization[k_idx].item()
+                entropy = -(probs * (probs + 1e-9).log()).sum(dim=-1).mean()
+                log_dict["motion/coef_entropy"] = entropy.item()
+        except Exception as e:
+            print(f"  Motion metrics failed: {e}")
+
+        wandb.log(log_dict, step=trainer.global_step)
+
+        # Best checkpoint tracking
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            save_ckpt(str(ckpt_dir / "best.ckpt"), epoch, loss_val=avg_loss,
+                      tag=f"★ best={best_loss:.4f}")
+
+        # Periodic checkpoint (every 50 epochs) + cleanup
+        save_interval = 50 if args.num_epochs > 100 else 10
+        if epoch % save_interval == 0 or epoch == args.num_epochs - 1:
+            save_ckpt(str(ckpt_dir / f"epoch_{epoch:04d}.ckpt"), epoch, loss_val=avg_loss)
+            cleanup_old_ckpts(keep_n=2)
+            save_preview(epoch)
+
+            # Wandb image logging: GT vs rendered + motion visualizations
+            vis_log = {}
+            preview_path = preview_dir / f"epoch_{epoch:04d}_gt_vs_pred.png"
+            if preview_path.exists():
+                vis_log["vis/gt_vs_rendered"] = wandb.Image(
+                    str(preview_path), caption=f"Epoch {epoch} | Loss {avg_loss:.4f}")
+
+            # Motion visualizations (reuse viz_scene_flow.py functions)
+            try:
+                import importlib.util
+                _vzmod_path = str(MONOFUSION_ROOT / "mouse_m5t2" / "scripts" / "viz_scene_flow.py")
+                _spec = importlib.util.spec_from_file_location("viz_scene_flow", _vzmod_path)
+                _vzmod = importlib.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_vzmod)
+                viz_magnitude_heatmap = _vzmod.viz_magnitude_heatmap
+                viz_trajectory_trails = _vzmod.viz_trajectory_trails
+                with torch.no_grad():
+                    # Scene flow heatmap: frame 0 → frame T//4
+                    t_mid = n_frames // 4
+                    ts_flow = torch.tensor([0, t_mid], device=device)
+                    means_flow, _ = trainer.model.compute_poses_fg(ts_flow)
+                    m0 = means_flow[:, 0].cpu().numpy()
+                    m1 = means_flow[:, 1].cpu().numpy()
+                    heatmap_path = str(preview_dir / f"epoch_{epoch:04d}_flow_heatmap.png")
+                    viz_magnitude_heatmap(m0, m1, heatmap_path, 0, t_mid)
+                    vis_log["vis/scene_flow_heatmap"] = wandb.Image(
+                        heatmap_path, caption=f"Flow F0→F{t_mid}")
+
+                    # Trajectory trails (subsample 10 frames for speed)
+                    trail_ts = torch.linspace(0, n_frames - 1, min(10, n_frames),
+                                              device=device).long()
+                    all_means, _ = trainer.model.compute_poses_fg(trail_ts)  # (G, 10, 3)
+                    all_means_np = all_means.cpu().numpy().transpose(1, 0, 2)  # (10, G, 3)
+                    trails_path = str(preview_dir / f"epoch_{epoch:04d}_trails.png")
+                    viz_trajectory_trails(all_means_np, trails_path, n_trails=50)
+                    vis_log["vis/trajectory_trails"] = wandb.Image(
+                        trails_path, caption=f"Top-50 trails ({len(trail_ts)} frames)")
+
+                    # Flow magnitude histogram
+                    flow_mag_all = np.linalg.norm(m1 - m0, axis=1)
+                    vis_log["vis/flow_histogram"] = wandb.Histogram(flow_mag_all)
+            except Exception as e:
+                print(f"  Motion viz failed: {e}")
+
+            if vis_log:
+                wandb.log(vis_log, step=trainer.global_step)
+
+    # Save loss curve
+    import json
+    loss_path = str(work_dir / "loss_curve.json")
+    with open(loss_path, "w") as f:
+        json.dump({"epochs": list(range(len(epoch_losses))), "losses": epoch_losses}, f)
+    print(f"\nTraining complete! Best loss: {best_loss:.6f}")
+    print(f"Checkpoints: {ckpt_dir}/best.ckpt + latest 2 epoch checkpoints")
+    print(f"Loss curve: {loss_path}")
 
 
 if __name__ == "__main__":

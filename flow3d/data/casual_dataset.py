@@ -1,3 +1,4 @@
+# no-split: upstream MonoFusion framework file — splitting breaks framework import structure
 import os
 from dataclasses import dataclass
 from functools import partial
@@ -209,7 +210,7 @@ class CasualDataset(BaseDataset):
         print(self.min_, self.max_)
         self.glb_first_indx = self.min_ #self.hard_indx_dict[self.video_name][0]
         self.glb_last_indx = self.max_ #self.hard_indx_dict[self.video_name][1]
-        self.glb_step = 3 #self.hard_indx_dict[self.video_name][2]
+        self.glb_step = 1 if 'm5t2' in (video_name or '') else 3
 
         frame_names = [p.stem for p in image_files]
         if super_fast:
@@ -221,7 +222,9 @@ class CasualDataset(BaseDataset):
             end = len(frame_names)
         self.start = start
         self.end = end
-        if self.video_name=='_bike':
+        if 'm5t2' in (self.video_name or ''):
+          self.frame_names = frame_names[start:end:self.glb_step]
+        elif self.video_name=='_bike':
           self.frame_names = frame_names[start:end:self.glb_step][:-1]
         elif self.video_name=='_dance':
           self.frame_names = frame_names[start:end:self.glb_step]#[:-1]
@@ -364,7 +367,8 @@ class CasualDataset(BaseDataset):
             #for c in range(4, 5):
             c = int(self.seq_name[-1])
             #for t in range(self.glb_first_indx, self.glb_last_indx, self.glb_step):
-            for t in range(0, 300, 3):
+            T = len(md['k'])
+            for t in range(0, T, self.glb_step):
               h, w = md['hw'][c]
               k, w2c =  md['k'][t][c], np.linalg.inv(md['w2c'][t][c])
               if noise:
@@ -433,7 +437,8 @@ class CasualDataset(BaseDataset):
             img = self.get_image(0)
             H, W = img.shape[:2]
             
-            path = f'_raw_data/{self.video_name[1:]}/trajectory/Dy_train_meta.json'
+            # Use absolute path via self.root_path (CWD-independent)
+            path = str(self.root_path / '_raw_data' / self.video_name[1:] / 'trajectory' / 'Dy_train_meta.json')
             if self.debug:
               w2cs, Ks, tstamps = load_cameras(
                   f"{root_dir}/{camera_type}/{seq_name}.npy", H, W
@@ -615,7 +620,7 @@ class CasualDataset(BaseDataset):
         if end < 0:
             end = num_frames + 1 + end
         query_idcs = list(range(start, end, step))
-        target_idcs = list(range(start, end, step))
+        target_idcs = list(range(start, end, 1))  # targets always all frames
 
         masks = torch.stack([self.get_mask(i) for i in target_idcs], dim=0)
 
@@ -711,7 +716,15 @@ class CasualDataset(BaseDataset):
         if not feature_path.exists():
             raise FileNotFoundError(f"Missing feature file at {feature_path}")
         dinov2_feature = np.load(feature_path).astype(np.float32)
-        return torch.from_numpy(dinov2_feature)
+        feat = torch.from_numpy(dinov2_feature)
+        # Upsample to image resolution if needed (e.g., 37×37 → 512×512)
+        if feat.shape[0] != 512 or feat.shape[1] != 512:
+            # (H, W, C) → (1, C, H, W) for interpolate → (H', W', C)
+            feat = F.interpolate(
+                feat.permute(2, 0, 1).unsqueeze(0),
+                size=(512, 512), mode="bilinear", align_corners=False,
+            ).squeeze(0).permute(1, 2, 0)
+        return feat
 
     def load_mask(self, index) -> torch.Tensor:
         r = self.mask_erosion_radius

@@ -1,3 +1,4 @@
+# no-split: upstream MonoFusion entry point — splitting breaks TrainConfig/model init coupling
 import os
 import os.path as osp
 import shutil
@@ -426,15 +427,18 @@ def initialize_and_checkpoint_model(
         Ks_fuse.append(Ks)
         w2cs_fuse.append(w2cs)
 
-    run_initial_optim(fg_params, motion_bases, tracks_3d, Ks, w2cs, num_iters=1122)
+    # NOTE: run_initial_optim expects single-camera Ks/w2cs [T, 3, 3] matching
+    # tracks_3d temporal dimension. Using cam0 (first camera) for init projection.
+    # Multi-camera init would require refactoring project_2d_tracks to handle [C, T, ...].
+    run_initial_optim(fg_params, motion_bases, tracks_3d, Ks_fuse[0], w2cs_fuse[0], num_iters=1122)
 
-    Ks_fuse = torch.cat(Ks_fuse, dim=0)  # Flatten [N, Ks] to [N * Ks]
-    w2cs_fuse = torch.cat(w2cs_fuse, dim=0)  # Flatten w2cs similarly
+    Ks_fuse = torch.cat(Ks_fuse, dim=0)
+    w2cs_fuse = torch.cat(w2cs_fuse, dim=0)
     if vis and cfg.port is not None:
         server = get_server(port=cfg.port)
         vis_init_params(server, fg_params, motion_bases)
 
-    model = SceneModel(Ks, w2cs, fg_params, motion_bases, bg_params)
+    model = SceneModel(Ks_fuse, w2cs_fuse, fg_params, motion_bases, bg_params)
 
     guru.info(f"Saving initialization to {ckpt_path}")
     os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)

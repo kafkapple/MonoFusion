@@ -1,8 +1,14 @@
+# no-split: upstream MonoFusion framework file — splitting breaks framework integration
 import functools
 import time
 from dataclasses import asdict
 from typing import cast
-import wandb
+try:
+    import wandb
+    if not wandb.run:
+        wandb.init(mode="disabled")
+except ImportError:
+    wandb = None
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -20,8 +26,11 @@ from flow3d.loss_utils import (
 )
 from flow3d.metrics import PCK, mLPIPS, mPSNR, mSSIM
 from flow3d.scene_model import SceneModel
-from flow3d.vis.utils import get_server
-from flow3d.vis.viewer import DynamicViewer
+try:
+    from flow3d.vis.utils import get_server
+    from flow3d.vis.viewer import DynamicViewer
+except ImportError:
+    get_server = DynamicViewer = None
 
 def masked_mse_loss(input, target, mask, reduction='mean'):
     """
@@ -209,14 +218,12 @@ class Trainer:
         loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_stat_losses(batch, batch_stat)
         print('NUM_of_Gaussians', self.model.bg.num_gaussians)
         self.stats = stats 
-        wandb.log(self.stats)
+        if wandb is not None:
+            wandb.log(self.stats)
         self.num_rays_per_sec=num_rays_per_sec
         self.num_rays_per_step = num_rays_per_step
         if loss.isnan():
-            guru.info(f"Loss is NaN at step {self.global_step}!!")
-            import ipdb
-
-            ipdb.set_trace()
+            raise RuntimeError(f"Loss is NaN at step {self.global_step}")
         #loss.backward()
         return loss
 
@@ -230,14 +237,12 @@ class Trainer:
         loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_losses(batch)
         print('NUM_of_Gaussians', self.model.fg.num_gaussians)
         self.stats = stats 
-        wandb.log(self.stats)
+        if wandb is not None:
+            wandb.log(self.stats)
         self.num_rays_per_sec=num_rays_per_sec
         self.num_rays_per_step = num_rays_per_step
         if loss.isnan():
-            guru.info(f"Loss is NaN at step {self.global_step}!!")
-            import ipdb
-
-            ipdb.set_trace()
+            raise RuntimeError(f"Loss is NaN at step {self.global_step}")
         #loss.backward()
         return loss
 
@@ -251,7 +256,7 @@ class Trainer:
 
         self.log_dict(self.stats)
         self.global_step += 1
-        # self.run_control_steps()
+        self.run_control_steps()
 
         if self.viewer is not None:
             self.viewer.lock.release()
@@ -299,7 +304,8 @@ class Trainer:
         t=None
         for i in range(B):
             bg_color = torch.ones(1, 3, device=device)
-            bg_feat =  torch.ones(1, 32, device=device)
+            _fdim = self.model.fg.get_feats().shape[-1] if hasattr(self.model, 'fg') else 32
+            bg_feat = torch.ones(1, _fdim, device=device)
             rendered = self.model.render_stat_bg(
                 t,
                 w2cs[None, i],
@@ -724,7 +730,8 @@ class Trainer:
         self._batched_img_wh = []
         for i in range(B):
             bg_color = torch.ones(1, 3, device=device)
-            bg_feat =  torch.ones(1, 32, device=device)
+            _fdim = self.model.fg.get_feats().shape[-1] if hasattr(self.model, 'fg') else 32
+            bg_feat = torch.ones(1, _fdim, device=device)
             rendered = self.model.render(
                 ts[i].item(),
                 w2cs[None, i],
@@ -1095,23 +1102,32 @@ class Trainer:
         for _current_xys, _current_radii, _current_img_wh in zip(
             self._batched_xys, self._batched_radii, self._batched_img_wh
         ):
-            sel = _current_radii > 0
-            gidcs = torch.where(sel)[1]
-            # normalize grads to [-1, 1] screen space
-            xys_grad = _current_xys.grad.clone()
-            xys_grad[..., 0] *= _current_img_wh[0] / 2.0 * batch_size
-            xys_grad[..., 1] *= _current_img_wh[1] / 2.0 * batch_size
-            self.running_stats["xys_grad_norm_acc"].index_add_(
-                0, gidcs, xys_grad[sel].norm(dim=-1)
-            )
-            self.running_stats["vis_count"].index_add_(
-                0, gidcs, torch.ones_like(gidcs, dtype=torch.int64)
-            )
-            max_radii = torch.maximum(
-                self.running_stats["max_radii"].index_select(0, gidcs),
-                _current_radii[sel] / max(_current_img_wh),
-            )
-            self.running_stats["max_radii"].index_put((gidcs,), max_radii)
+            # Process each view in the batch separately (C may be >1)
+            C = _current_radii.shape[0]
+            N = self.model.num_gaussians
+            for c in range(C):
+                radii_c = _current_radii[c]
+                if radii_c.dim() > 1:
+                    radii_c = radii_c.max(dim=-1).values  # (N,) from (N,2)
+                sel = radii_c > 0  # (N,)
+                gidcs = torch.where(sel)[0]
+                if gidcs.numel() == 0:
+                    continue
+                xys_grad = _current_xys.grad[c].clone() if _current_xys.grad is not None else torch.zeros(N, 2, device=sel.device)
+                xys_grad[..., 0] *= _current_img_wh[0] / 2.0 * batch_size
+                xys_grad[..., 1] *= _current_img_wh[1] / 2.0 * batch_size
+                grad_norms = xys_grad[sel].reshape(-1, 2).norm(dim=-1)
+                self.running_stats["xys_grad_norm_acc"].index_add_(
+                    0, gidcs, grad_norms
+                )
+                self.running_stats["vis_count"].index_add_(
+                    0, gidcs, torch.ones_like(gidcs, dtype=torch.int64)
+                )
+                max_radii = torch.maximum(
+                    self.running_stats["max_radii"].index_select(0, gidcs),
+                    radii_c[sel] / max(_current_img_wh),
+                )
+                self.running_stats["max_radii"].index_put((gidcs,), max_radii)
         return True
 
     @torch.no_grad()
@@ -1338,11 +1354,12 @@ def log_images(rendered_imgs, imgs):
     imgs_np = imgs.detach().cpu().numpy() if isinstance(imgs, torch.Tensor) else imgs
 
     # Log images to WandB
-    for i in range(rendered_imgs_np.shape[0]):
-        wandb.log({
-            f"Rendered Image_{i}": wandb.Image(rendered_imgs_np[i], caption=f"Rendered Img {i}"),
-            f"Original Image_{i}": wandb.Image(imgs_np[i], caption=f"Original Img {i}")
-        })
+    if wandb is not None:
+        for i in range(rendered_imgs_np.shape[0]):
+            wandb.log({
+                f"Rendered Image_{i}": wandb.Image(rendered_imgs_np[i], caption=f"Rendered Img {i}"),
+                f"Original Image_{i}": wandb.Image(imgs_np[i], caption=f"Original Img {i}")
+            })
     print("Images logged.")
 
 def remove_from_optim(optimizer, new_params: list, _should_cull: torch.Tensor):
