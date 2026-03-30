@@ -635,9 +635,15 @@ class CasualDataset(BaseDataset):
         fg_masks = fg_masks.bool()
         final_masks = (fg_masks & depths_valid_mask).numpy()#.float()
         r = 2
-        final_masks = cv2.erode(
-            final_masks.astype(np.uint8), np.ones((r, r), np.uint8), iterations=1
-        )
+        kernel = np.ones((r, r), np.uint8)
+        # cv2.erode requires 2D — apply per-frame if 3D
+        if final_masks.ndim == 3:
+            final_masks = np.stack([
+                cv2.erode(final_masks[t].astype(np.uint8), kernel, iterations=1)
+                for t in range(final_masks.shape[0])
+            ])
+        else:
+            final_masks = cv2.erode(final_masks.astype(np.uint8), kernel, iterations=1)
         final_masks = torch.from_numpy(final_masks).float()
 
         num_per_query_frame = int(np.ceil(num_samples / len(query_idcs)))
@@ -674,6 +680,15 @@ class CasualDataset(BaseDataset):
 
 
         return tracks_3d, visibles, invisibles, confidences, colors, feats
+
+    def _get_image_hw(self) -> tuple[int, int]:
+        """Get image (H, W) from first image file, cached."""
+        if not hasattr(self, '_img_hw'):
+            from PIL import Image
+            first_img = sorted(self.img_dir.glob("*.png")) or sorted(self.img_dir.glob("*.jpg"))
+            img = Image.open(first_img[0])
+            self._img_hw = (img.height, img.width)
+        return self._img_hw
 
     def get_image(self, index) -> torch.Tensor:
         if self.imgs[index] is None:
@@ -717,12 +732,15 @@ class CasualDataset(BaseDataset):
             raise FileNotFoundError(f"Missing feature file at {feature_path}")
         dinov2_feature = np.load(feature_path).astype(np.float32)
         feat = torch.from_numpy(dinov2_feature)
-        # Upsample to image resolution if needed (e.g., 37×37 → 512×512)
-        if feat.shape[0] != 512 or feat.shape[1] != 512:
-            # (H, W, C) → (1, C, H, W) for interpolate → (H', W', C)
+        # Upsample to image resolution if needed (e.g., 37×37 → H×W)
+        # Cap at 512×512 to avoid RAM explosion (1024×1152×384 = 1.7GB/frame)
+        img_h, img_w = self._get_image_hw()
+        tgt_h = min(img_h, 512)
+        tgt_w = min(img_w, 512)
+        if feat.shape[0] != tgt_h or feat.shape[1] != tgt_w:
             feat = F.interpolate(
                 feat.permute(2, 0, 1).unsqueeze(0),
-                size=(512, 512), mode="bilinear", align_corners=False,
+                size=(tgt_h, tgt_w), mode="bilinear", align_corners=False,
             ).squeeze(0).permute(1, 2, 0)
         return feat
 
