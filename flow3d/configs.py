@@ -85,11 +85,12 @@ class OptimizerConfig:
     stop_control_steps: int = 4000
     ### Densify.
     densify_xys_grad_threshold: float = 0.0002# 0.0002 # 0.0002
-    densify_scale_threshold: float = 0.01 
+    densify_scale_threshold: float = 0.01
     #  should_split = is_grad_too_high & (is_scale_too_big | is_radius_too_big)
       #  should_dup = is_grad_too_high & ~is_scale_too_big
     densify_screen_threshold: float = 0.05
     stop_densify_steps: int = 2000
+    max_gaussians: int = 0  # Hard cap on total Gaussians. 0 = no cap.
     ### Cull.
     cull_opacity_threshold: float = 0.1# 0.1
     # is_opacity_too_small = opacities < cfg.cull_opacity_threshold

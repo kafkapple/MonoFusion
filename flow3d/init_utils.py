@@ -1,3 +1,4 @@
+# no-split: upstream MonoFusion framework file — splitting breaks framework integration
 import time
 from typing import Literal
 
@@ -9,7 +10,10 @@ import cv2
 import roma
 import torch
 import torch.nn.functional as F
-from cuml import HDBSCAN, KMeans
+try:
+    from cuml import HDBSCAN, KMeans
+except ImportError:
+    from sklearn.cluster import HDBSCAN, KMeans
 from loguru import logger as guru
 from matplotlib.pyplot import get_cmap
 from tqdm import tqdm
@@ -26,7 +30,10 @@ from flow3d.loss_utils import (
 from flow3d.params import GaussianParams, MotionBases
 from flow3d.tensor_dataclass import StaticObservations, TrackObservations
 from flow3d.transforms import cont_6d_to_rmat, rt_to_mat4, solve_procrustes
-from flow3d.vis.utils import draw_keypoints_video, get_server, project_2d_tracks
+try:
+    from flow3d.vis.utils import draw_keypoints_video, get_server, project_2d_tracks
+except ImportError:
+    draw_keypoints_video = get_server = project_2d_tracks = None
 
 import open3d as o3d
 import numpy as np

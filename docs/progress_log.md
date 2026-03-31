@@ -145,6 +145,102 @@ All saved to `/node_data/joon/data/monofusion/m5t2_poc/viz/`:
 4. Write proper data adapter (not monkey-patches)
 5. Training with correct preprocessing outputs
 
+## Phase 7: Tracking Fix — RAFT+mask (2026-03-28 ~ 2026-03-29)
+
+### 7.1 TAPNet Failure Root Cause Analysis
+- TAPNet (BootsTAPIR) marked 80-89% FG tracks as occluded at F30
+- Root cause: mouse moves ~6px/frame at 1080p, 30fps → violates TAPNet's slow-motion assumption
+- "Visible" tracks after TAPNet = all background (slow-moving)
+- Confirmed via Option A post-filter: 0% visible FG tracks after SAM2 mask filter (correct, but no signal)
+
+### 7.2 Option B: RAFT+mask (COMPLETE, WORKING)
+- Strategy: RAFT optical flow on original RGB (no masking to avoid distribution shift)
+- Per-frame SAM2 mask used as validation (not input)
+- Query points seeded from FG mask at query frame
+- Bug #1 fixed: `dyn_mask.astype(bool)` → `raw > 0` (float32 -1.0 → True is wrong)
+- Bug #2 fixed: RAFT uint8 input + `Raft_Small_Weights.DEFAULT.transforms()` required
+- Results: cam00=45%, cam01=18%, cam02=0%(normal), cam03=15% at F30
+- Script: `mouse_m5t2/scripts/generate_raft_tracks.py`
+
+### 7.3 Multi-Query RAFT (COMPLETE)
+- query_frames=[0,15,30,45,59], 512 pts/query → 300 files per camera
+- cam01 F30 coverage: single-query 18% → multi-query ~30%
+- `casual_dataset.py` confirmed to support multiple `query_idcs`
+- All 4 cameras: ~1200-1500 files total
+
+### 7.4 tapir/ Symlink Fix (COMPLETE)
+- `train_m5t2.py:142` hardcodes check for "tapir" directory
+- Fix: `mv tapir tapir_tapnet_backup && ln -sfn tapir_raft tapir`
+- Backup: `tapir_tapnet_backup/` (original TAPNet tracks)
+
+### 7.5 Visualizations Generated
+- `viz/10_tapnet_vs_raft_cam01.png` — TAPNet(0%) vs RAFT(18%) at F30
+- `viz/11_raft_all_cameras.png` — 4-camera RAFT results
+- `viz/12_raft_all_cameras_legend.png` — with color legend
+- `viz/13_raft_trajectory_analysis_cam01.png` — trajectories + visibility curve
+- `viz/15_raft_4cam_video.mp4` — 60-frame tracking video
+- `viz/16_multi_query_comparison_cam01.png` — single-Q vs multi-Q comparison
+
+### 7.6 Documentation Added
+- `docs/core_architecture.md` — full pipeline + RAFT fix strategy + training integration
+- `docs/theory/scene_flow_and_tracking.md` — theory: 4D-GS, scene flow, RAFT vs TAPNet
+- `docs/training_guide.md` — pre-training safeguards, monitoring metrics, improvement roadmap
+- `docs/experiments/mf_001_notes.md` — updated with mf_001_raft pending config
+
+## Phase 8: Architecture Audit & Doc Fix (2026-03-29)
+
+### 8.1 Critical Architecture Correction: MLP → SE(3) Motion Bases (DONE)
+- **Bug**: all docs incorrectly described "Deformation MLP" — MonoFusion uses SE(3) bases
+- Root cause: reading 4D-GS survey papers instead of actual `flow3d/scene_model.py`
+- Fix: updated `core_architecture.md`, `scene_flow_and_tracking.md` with correct architecture
+- **Implication**: scene flow = `compute_poses_fg(t+1) - compute_poses_fg(t)` (no MLP forward)
+
+### 8.2 Critical Bug Fix: expected_dist=0.0 → CONFIDENT_DIST=-2.0 (DONE)
+- `parse_tapir_track_info`: `confidence = 1 - sigmoid(0.0) = 0.5` → valid_visible=0.44 < 0.5 → ALL visible RAFT tracks discarded
+- Fix: added `CONFIDENT_DIST = -2.0` constant in `generate_raft_tracks.py`
+- **Action required**: Regenerate RAFT tracks on gpu03 (existing tapir_raft/ is broken)
+
+### 8.3 Validation & Viz Scripts (DONE)
+- `validate_training_inputs.py` + `validate_checks.py` — 5 pre-training silent-bug checks
+- `viz_scene_flow.py` — post-training scene flow visualization (matplotlib, 3 figures)
+- Both split per 400L coding rule (validate: 68L+329L, viz: 387L)
+
+### 8.4 New Documentation (DONE)
+- `docs/theory/monofusion_architecture.md` — SE(3) motion bases, K selection, transform math
+- All docs: backlinks added (`↑ MOC / ↔ Related`)
+- `docs/README.md`: monofusion_architecture.md registered
+
+## Phase 9: Execution (2026-03-29, IN PROGRESS)
+
+### 9.1 Code Sync (DONE)
+- rsync Mac → GPU03: scripts/ (16 files), train_m5t2.py, docs/ (16 files)
+- Verified existing tapir_raft/ tracks: expected_dist=0.0 (confirmed broken)
+- Deleted broken tapir_raft/ on GPU03
+
+### 9.2 RAFT Track Regeneration (IN PROGRESS)
+- Command: `generate_raft_tracks.py --query_frames 0 15 30 45 59 --n_points 512`
+- GPU: Blackwell RTX PRO 6000 (GPU 0, 98GB)
+- Fix: CONFIDENT_DIST=-2.0 (expected_dist column)
+- tapir/ symlink → tapir_raft/ (already configured)
+
+### 9.3 Pre-Training Checklist
+- [x] Code sync to GPU03
+- [x] Delete broken tracks
+- [ ] RAFT track regeneration (running)
+- [ ] Run validate_training_inputs.py — verify 5 checks pass
+- [ ] Verify expected_dist=-2.0 in new tracks
+
+### 9.4 First Training Run (PENDING)
+- Experiment: `mf_001_raft`
+- Plan: 1cam+20frame 축소 실험 먼저 (fast debug)
+- Then: full 4cam×60frame, 30k iterations
+- GPU: A6000 (CUDA_VISIBLE_DEVICES=4 or Blackwell GPU 0)
+
+### 9.5 Temporal Consistency MoA Findings
+- 3-model consensus: CoTracker > RAFT for long-range tracking
+- Current RAFT: PoC 수준 OK, 고품질 필요시 CoTracker 전환 필수
+- See `docs/audit_pretraining.md` for full MoA analysis
+
 ---
 
-*Progress Log | MonoFusion M5t2 PoC | 2026-03-27*
+*Progress Log | MonoFusion M5t2 PoC | 2026-03-29*

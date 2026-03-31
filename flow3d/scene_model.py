@@ -1,3 +1,4 @@
+# no-split: upstream MonoFusion framework file — splitting breaks framework integration
 import roma
 import torch
 import torch.nn as nn
@@ -330,22 +331,26 @@ class SceneModel(nn.Module):
                 x = x.reshape(C, H, W, B, 3)
             out_dict[name] = x
 
-        bg_feat = torch.ones((1, 32), device=device)
-        render_feats, _, _ = rasterization(
-            means=means,
-            quats=quats,
-            scales=scales,
-            opacities=opacities,
-            colors=feats_override,
-            backgrounds=bg_feat,
-            viewmats=w2cs,  # [C, 4, 4]
-            Ks=Ks,  # [C, 3, 3]
-            width=W,
-            height=H,
-            packed=False,
-            render_mode='RGB',
-        )
-        ds_extra_expected = {"feat": 32}    
+        feat_dim = feats_override.shape[-1] if feats_override.shape[-1] > 0 else 0
+        if feat_dim > 0:
+            bg_feat = torch.ones((1, feat_dim), device=device)
+            render_feats, _, _ = rasterization(
+                means=means,
+                quats=quats,
+                scales=scales,
+                opacities=opacities,
+                colors=feats_override,
+                backgrounds=bg_feat,
+                viewmats=w2cs,  # [C, 4, 4]
+                Ks=Ks,  # [C, 3, 3]
+                width=W,
+                height=H,
+                packed=False,
+                render_mode='RGB',
+            )
+        else:
+            render_feats = torch.zeros(C, H, W, 0, device=device)
+        ds_extra_expected = {"feat": feat_dim}
 
         outputs_feats = render_feats #torch.split(render_feats, list(ds_extra_expected.values()), dim=-1)
         # print(render_feats.shape, render_colors.shape, 'ssssshape')
@@ -579,22 +584,26 @@ class SceneModel(nn.Module):
                 x = x.reshape(C, H, W, B, 3)
             out_dict[name] = x
 
-        bg_feat = torch.ones((1, 32), device=device)
-        render_feats, _, _ = rasterization(
-            means=means,
-            quats=quats,
-            scales=scales,
-            opacities=opacities,
-            colors=feats_override,
-            backgrounds=bg_feat,
-            viewmats=w2cs,  # [C, 4, 4]
-            Ks=Ks,  # [C, 3, 3]
-            width=W,
-            height=H,
-            packed=False,
-            render_mode='RGB',
-        )
-        ds_extra_expected = {"feat": 32}    
+        feat_dim = feats_override.shape[-1] if feats_override.shape[-1] > 0 else 0
+        if feat_dim > 0:
+            bg_feat = torch.ones((1, feat_dim), device=device)
+            render_feats, _, _ = rasterization(
+                means=means,
+                quats=quats,
+                scales=scales,
+                opacities=opacities,
+                colors=feats_override,
+                backgrounds=bg_feat,
+                viewmats=w2cs,  # [C, 4, 4]
+                Ks=Ks,  # [C, 3, 3]
+                width=W,
+                height=H,
+                packed=False,
+                render_mode='RGB',
+            )
+        else:
+            render_feats = torch.zeros(C, H, W, 0, device=device)
+        ds_extra_expected = {"feat": feat_dim}
 
         outputs_feats = render_feats #torch.split(render_feats, list(ds_extra_expected.values()), dim=-1)
         # print(render_feats.shape, render_colors.shape, 'ssssshape')

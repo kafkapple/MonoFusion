@@ -145,13 +145,17 @@ def get_tracks_3d_for_query_frame(
     valid = is_in_masks[query_index]
     # valid if visible 5% of the time
     visible_counts = visibles.sum(0)
-    valid = valid & (
-        visible_counts
-        >= min(
-            int(0.05 * T),
-            visible_counts.float().quantile(0.1).item(),
-        )
-    )
+    if visible_counts.numel() > 0 and valid.sum() > 0:
+        valid_vis = visible_counts[valid]
+        if valid_vis.numel() > 0:
+            valid = valid & (
+                visible_counts
+                >= min(
+                    int(0.05 * T),
+                    valid_vis.float().quantile(0.1).item(),
+                )
+            )
+    # If no valid tracks, valid remains as is_in_masks[query_index]
 
     # Get track's color from the query frame.
     # (1, 3, H, W), (1, 1, N, 2) -> (1, 3, 1, N) -> (N, 3)

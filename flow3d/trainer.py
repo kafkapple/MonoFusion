@@ -1135,6 +1135,13 @@ class Trainer:
         assert (self.running_stats["vis_count"] > 0).any()
 
         cfg = self.optim_cfg
+        # Hard cap: skip densification if at or above max_gaussians
+        if cfg.max_gaussians > 0 and self.model.num_gaussians >= cfg.max_gaussians:
+            guru.info(
+                f"Skipping densification: {self.model.num_gaussians} >= "
+                f"max_gaussians={cfg.max_gaussians}"
+            )
+            return
         xys_grad_avg = self.running_stats["xys_grad_norm_acc"] / self.running_stats[
             "vis_count"
         ].clamp_min(1)

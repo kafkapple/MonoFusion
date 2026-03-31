@@ -51,7 +51,7 @@ def patch_casual_dataset():
     CasualDataset.__init__ = patched_init
 
 
-def create_m5t2_datasets(data_root: str, glb_step: int = 1):
+def create_m5t2_datasets(data_root: str, glb_step: int = 1, feat_dir_name: str = "dinov2_features"):
     """Create CasualDataset instances for each M5t2 camera."""
     from flow3d.data.casual_dataset import CasualDataset, CustomDataConfig
 
@@ -111,6 +111,17 @@ def create_m5t2_datasets(data_root: str, glb_step: int = 1):
                 video_name="_m5t2",
                 super_fast=False,
             )
+            # Override feature directory if non-default (e.g., PCA reduced features)
+            if feat_dir_name != "dinov2_features":
+                custom_feat_dir = data_root / feat_dir_name / seq_name
+                if custom_feat_dir.exists():
+                    dataset.feat_dir = custom_feat_dir
+                    # Clear pre-loaded feature cache so load_feat re-reads from new dir
+                    dataset.feats = [None for _ in dataset.frame_names]
+                    print(f"  Using custom features: {feat_dir_name}/{seq_name}")
+                else:
+                    print(f"  WARNING: {custom_feat_dir} not found, using default")
+
             datasets.append(dataset)
             print(f"  OK: {len(dataset.frame_names)} frames")
         except Exception as e:
@@ -133,6 +144,18 @@ def main():
     parser.add_argument("--wandb_project", type=str, default="monofusion-m5t2")
     parser.add_argument("--wandb_name", type=str, default=None)
     parser.add_argument("--no_wandb", action="store_true")
+    parser.add_argument("--w_feat", type=float, default=0.5,
+                        help="Feature loss weight target (paper 1.5 with PCA 32d)")
+    parser.add_argument("--feat_ramp_start_epoch", type=int, default=5,
+                        help="Epoch to start gradual feature loss ramp (0=immediate)")
+    parser.add_argument("--feat_ramp_end_epoch", type=int, default=50,
+                        help="Epoch when feature loss reaches full w_feat")
+    parser.add_argument("--w_depth_reg", type=float, default=0.0,
+                        help="Depth regularization weight (paper default 0.0)")
+    parser.add_argument("--max_gaussians", type=int, default=50000,
+                        help="Hard cap on Gaussian count during densification (0=no cap)")
+    parser.add_argument("--feat_dir_name", type=str, default="dinov2_features",
+                        help="Feature directory name (e.g., dinov2_features_pca32)")
     args = parser.parse_args()
 
     if args.output_dir is None:
@@ -179,7 +202,7 @@ def main():
 
     # Patch and create datasets
     patch_casual_dataset()
-    datasets = create_m5t2_datasets(args.data_root)
+    datasets = create_m5t2_datasets(args.data_root, feat_dir_name=args.feat_dir_name)
 
     if not datasets:
         print("ERROR: No datasets created")
@@ -246,11 +269,11 @@ def main():
     # Load trainer from checkpoint
     from flow3d.configs import FGLRConfig, BGLRConfig, MotionLRConfig
     lr_cfg = SceneLRConfig(fg=FGLRConfig(), bg=BGLRConfig(), motion_bases=MotionLRConfig())
-    # M5t2-tuned settings:
-    # - w_feat: 1.5 → 0.3 (384d raw features vs paper's 32d PCA)
-    # - w_depth_reg: 0.0 → 0.5 (paper default, geometric regularization)
-    # - max_steps: dynamically computed from dataset size
-    loss_cfg = LossesConfig(w_feat=0.3, w_depth_reg=0.5)
+    # V5d settings (MoA+Audit consensus):
+    # - w_feat: 0.5 default with PCA 32d + L2 norm (paper 1.5, conservative start)
+    # - w_depth_reg: 0.0 (paper default — nonzero was confirmed destabilizer)
+    # - Gradual feat ramp replaces hard warmup (prevents gradient shock)
+    loss_cfg = LossesConfig(w_feat=args.w_feat, w_depth_reg=args.w_depth_reg)
     # Compute steps/epoch from actual dataset: frames / batch_size
     n_frames = len(datasets[0].frame_names)
     batch_size = 4
@@ -258,10 +281,13 @@ def main():
     total_steps = args.num_epochs * steps_per_epoch
     print(f"  Steps/epoch: {steps_per_epoch} ({n_frames} frames / {batch_size} batch)")
     print(f"  Total steps: {total_steps} ({args.num_epochs} epochs × {steps_per_epoch})")
+    stop_densify = int(total_steps * 0.4)  # paper: 40% frontloaded densification
     optim_cfg = OptimizerConfig(
         max_steps=total_steps,
-        stop_densify_steps=total_steps // 2,  # densify through first 50% of training
+        stop_densify_steps=stop_densify,
+        max_gaussians=args.max_gaussians,
     )
+    print(f"  Densification: steps 0-{stop_densify} (40% of {total_steps})")
 
     trainer, start_epoch = Trainer.init_from_checkpoint(
         ckpt_path, device, lr_cfg, loss_cfg, optim_cfg,
@@ -284,6 +310,9 @@ def main():
     print(f"  FG Gaussians: {args.num_fg}")
     print(f"  BG Gaussians: {args.num_bg}")
     print(f"  Motion bases: {args.num_motion_bases}")
+    print(f"  w_feat={args.w_feat} (ramp {args.feat_ramp_start_epoch}-{args.feat_ramp_end_epoch}), "
+          f"w_depth_reg={args.w_depth_reg}, w_rgb={loss_cfg.w_rgb}")
+    print(f"  max_gaussians={args.max_gaussians}, num_bg={args.num_bg}")
 
     from tqdm import tqdm
     import glob
@@ -346,8 +375,28 @@ def main():
         except Exception as e:
             print(f"  Preview failed: {e}")
 
+    w_feat_target = trainer.losses_cfg.w_feat
+    ramp_start = args.feat_ramp_start_epoch
+    ramp_end = args.feat_ramp_end_epoch
+    print(f"  Feature ramp: epochs {ramp_start}-{ramp_end}, "
+          f"w_feat 0→{w_feat_target} (gradual)")
+    print(f"  Max Gaussians cap: {args.max_gaussians}")
+    print(f"  w_depth_reg: {args.w_depth_reg}")
+
     for epoch in (pbar := tqdm(range(start_epoch, args.num_epochs),
                                 initial=start_epoch, total=args.num_epochs)):
+        # Gradual feature loss ramp (prevents gradient shock on RGB-optimized structure)
+        if epoch < ramp_start:
+            trainer.losses_cfg.w_feat = 0.0
+        elif epoch < ramp_end:
+            progress = (epoch - ramp_start) / (ramp_end - ramp_start)
+            trainer.losses_cfg.w_feat = w_feat_target * progress
+        else:
+            trainer.losses_cfg.w_feat = w_feat_target
+
+        if epoch % 25 == 0 or epoch == ramp_start or epoch == ramp_end:
+            print(f"\n  [Epoch {epoch}] w_feat={trainer.losses_cfg.w_feat:.4f}")
+
         trainer.set_epoch(epoch)
         step_losses = []
         for batches in zip(*train_loaders):
