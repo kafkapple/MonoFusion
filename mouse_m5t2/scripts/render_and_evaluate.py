@@ -36,7 +36,7 @@ def load_model(ckpt_path: Path, device: str):
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     from flow3d.scene_model import SceneModel
 
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     state_dict = ckpt["model"]
     model = SceneModel.init_from_state_dict(state_dict)
     model = model.to(device).eval()
