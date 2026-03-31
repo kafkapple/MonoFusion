@@ -1291,8 +1291,9 @@ class Trainer:
 
     @torch.no_grad()
     def _reset_opacity_control_step(self):
-        # Reset gaussian opacities.
-        new_val = torch.logit(torch.tensor(0.8 * self.optim_cfg.cull_opacity_threshold))
+        # Reset gaussian opacities above cull threshold to survive next cull
+        reset_mult = getattr(self.optim_cfg, 'reset_opacity_multiplier', 0.8)
+        new_val = torch.logit(torch.tensor(reset_mult * self.optim_cfg.cull_opacity_threshold))
         for part in ["fg", "bg"]:
             try:
               part_params = getattr(self.model, part).reset_opacities(new_val)

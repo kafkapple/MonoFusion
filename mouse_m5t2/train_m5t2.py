@@ -282,12 +282,17 @@ def main():
     print(f"  Steps/epoch: {steps_per_epoch} ({n_frames} frames / {batch_size} batch)")
     print(f"  Total steps: {total_steps} ({args.num_epochs} epochs × {steps_per_epoch})")
     stop_densify = int(total_steps * 0.4)  # paper: 40% frontloaded densification
+    stop_control = int(total_steps * 0.8)  # paper: 80% of training
     optim_cfg = OptimizerConfig(
         max_steps=total_steps,
         stop_densify_steps=stop_densify,
+        stop_control_steps=stop_control,
+        stop_control_by_screen_steps=stop_control,
         max_gaussians=args.max_gaussians,
+        reset_opacity_multiplier=1.5,  # Reset above cull threshold (0.15 > 0.1)
     )
     print(f"  Densification: steps 0-{stop_densify} (40% of {total_steps})")
+    print(f"  Control: steps 0-{stop_control} (80%), reset_opacity_mult=1.5")
 
     trainer, start_epoch = Trainer.init_from_checkpoint(
         ckpt_path, device, lr_cfg, loss_cfg, optim_cfg,

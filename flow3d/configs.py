@@ -91,6 +91,7 @@ class OptimizerConfig:
     densify_screen_threshold: float = 0.05
     stop_densify_steps: int = 2000
     max_gaussians: int = 0  # Hard cap on total Gaussians. 0 = no cap.
+    reset_opacity_multiplier: float = 0.8  # Reset opacity = mult × cull_threshold. Must be > 1.0 to survive cull.
     ### Cull.
     cull_opacity_threshold: float = 0.1# 0.1
     # is_opacity_too_small = opacities < cfg.cull_opacity_threshold
