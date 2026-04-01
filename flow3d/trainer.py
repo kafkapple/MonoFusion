@@ -216,8 +216,7 @@ class Trainer:
             self.viewer.lock.acquire()
 
         loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_stat_losses(batch, batch_stat)
-        print('NUM_of_Gaussians', self.model.bg.num_gaussians)
-        self.stats = stats 
+        self.stats = stats
         if wandb is not None:
             wandb.log(self.stats)
         self.num_rays_per_sec=num_rays_per_sec
@@ -235,8 +234,7 @@ class Trainer:
             self.viewer.lock.acquire()
 
         loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_losses(batch)
-        print('NUM_of_Gaussians', self.model.fg.num_gaussians)
-        self.stats = stats 
+        self.stats = stats
         if wandb is not None:
             wandb.log(self.stats)
         self.num_rays_per_sec=num_rays_per_sec

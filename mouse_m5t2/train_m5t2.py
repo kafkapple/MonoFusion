@@ -5,13 +5,19 @@ MonoFusion training wrapper for M5t2 mouse dataset.
 Patches the CasualDataset camera loader to work with M5t2 format,
 then delegates to the standard MonoFusion training pipeline.
 
-Usage:
-    CUDA_VISIBLE_DEVICES=4 python train_m5t2.py \
-        --data_root /node_data/joon/data/monofusion/m5t2_poc \
-        --num_fg 5000 \
-        --num_bg 10000 \
-        --num_motion_bases 10 \
-        --num_epochs 50
+Usage (V5h example):
+    CC=x86_64-conda-linux-gnu-gcc CUDA_VISIBLE_DEVICES=6 OMP_NUM_THREADS=8 \
+    python -u train_m5t2.py \
+        --data_root /node_data/joon/data/monofusion/m5t2_v5 \
+        --output_dir /node_data/joon/data/monofusion/m5t2_v5/results_v5h \
+        --num_fg 5000 --num_bg 0 --num_motion_bases 10 --num_epochs 300 \
+        --w_feat 1.5 --w_mask 1.0 --w_depth_reg 0.0 \
+        --feat_ramp_start_epoch 5 --feat_ramp_end_epoch 100 \
+        --max_gaussians 100000 --stop_densify_pct 0.6 \
+        --densify_xys_grad_threshold 0.00015 \
+        --feat_dir_name dinov2_features_pca32_norm \
+        --disable_opacity_reset \
+        --wandb_name v5h_experiment
 """
 import sys
 import os
@@ -144,7 +150,7 @@ def main():
     parser.add_argument("--wandb_project", type=str, default="monofusion-m5t2")
     parser.add_argument("--wandb_name", type=str, default=None)
     parser.add_argument("--no_wandb", action="store_true")
-    parser.add_argument("--w_feat", type=float, default=0.5,
+    parser.add_argument("--w_feat", type=float, default=0.75,
                         help="Feature loss weight target (paper 1.5 with PCA 32d)")
     parser.add_argument("--feat_ramp_start_epoch", type=int, default=5,
                         help="Epoch to start gradual feature loss ramp (0=immediate)")
@@ -152,10 +158,18 @@ def main():
                         help="Epoch when feature loss reaches full w_feat")
     parser.add_argument("--w_depth_reg", type=float, default=0.0,
                         help="Depth regularization weight (paper default 0.0)")
-    parser.add_argument("--max_gaussians", type=int, default=50000,
+    parser.add_argument("--max_gaussians", type=int, default=100000,
                         help="Hard cap on Gaussian count during densification (0=no cap)")
     parser.add_argument("--feat_dir_name", type=str, default="dinov2_features",
                         help="Feature directory name (e.g., dinov2_features_pca32)")
+    parser.add_argument("--stop_densify_pct", type=float, default=0.6,
+                        help="Fraction of total_steps for densification window (V5e: 0.4)")
+    parser.add_argument("--densify_xys_grad_threshold", type=float, default=0.00015,
+                        help="XY gradient threshold for densification (V5e: 0.0002)")
+    parser.add_argument("--w_mask", type=float, default=7.0,
+                        help="Mask loss weight (paper 7.0, reduce for small FG ratio)")
+    parser.add_argument("--disable_opacity_reset", action="store_true",
+                        help="Disable periodic opacity resets (better for dynamic scenes)")
     args = parser.parse_args()
 
     if args.output_dir is None:
@@ -273,7 +287,7 @@ def main():
     # - w_feat: 0.5 default with PCA 32d + L2 norm (paper 1.5, conservative start)
     # - w_depth_reg: 0.0 (paper default — nonzero was confirmed destabilizer)
     # - Gradual feat ramp replaces hard warmup (prevents gradient shock)
-    loss_cfg = LossesConfig(w_feat=args.w_feat, w_depth_reg=args.w_depth_reg)
+    loss_cfg = LossesConfig(w_feat=args.w_feat, w_depth_reg=args.w_depth_reg, w_mask=args.w_mask)
     # Compute steps/epoch from actual dataset: frames / batch_size
     n_frames = len(datasets[0].frame_names)
     batch_size = 4
@@ -281,18 +295,24 @@ def main():
     total_steps = args.num_epochs * steps_per_epoch
     print(f"  Steps/epoch: {steps_per_epoch} ({n_frames} frames / {batch_size} batch)")
     print(f"  Total steps: {total_steps} ({args.num_epochs} epochs × {steps_per_epoch})")
-    stop_densify = int(total_steps * 0.4)  # paper: 40% frontloaded densification
+    stop_densify = int(total_steps * args.stop_densify_pct)
     stop_control = int(total_steps * 0.8)  # paper: 80% of training
+    # Disable opacity resets for dynamic scenes (Hybrid 3D-4DGS: +0.73dB)
+    reset_n = 999999 if args.disable_opacity_reset else 30
     optim_cfg = OptimizerConfig(
         max_steps=total_steps,
         stop_densify_steps=stop_densify,
         stop_control_steps=stop_control,
         stop_control_by_screen_steps=stop_control,
+        densify_xys_grad_threshold=args.densify_xys_grad_threshold,
         max_gaussians=args.max_gaussians,
         reset_opacity_multiplier=1.5,  # Reset above cull threshold (0.15 > 0.1)
+        reset_opacity_every_n_controls=reset_n,
     )
-    print(f"  Densification: steps 0-{stop_densify} (40% of {total_steps})")
+    print(f"  Densification: steps 0-{stop_densify} ({args.stop_densify_pct*100:.0f}% of {total_steps})")
+    print(f"  Densify grad threshold: {args.densify_xys_grad_threshold}")
     print(f"  Control: steps 0-{stop_control} (80%), reset_opacity_mult=1.5")
+    print(f"  w_mask={args.w_mask}, opacity_reset={'DISABLED' if args.disable_opacity_reset else f'every {reset_n} controls'}")
 
     trainer, start_epoch = Trainer.init_from_checkpoint(
         ckpt_path, device, lr_cfg, loss_cfg, optim_cfg,

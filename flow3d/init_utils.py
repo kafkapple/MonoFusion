@@ -468,9 +468,6 @@ def init_motion_params_with_procrustes(
         print(f"{dists2centers.shape=} {center_idcs.shape=}")
         vis_se3_init_3d(server, init_rots, init_ts, means_cano[center_idcs])
         vis_tracks_3d(server, tracks_3d.xyz[center_idcs].numpy(), name="center_tracks")
-        import ipdb
-
-        ipdb.set_trace()
 
     bases = MotionBases(init_rots, init_ts)
     return bases, motion_coefs, tracks_3d#, sampled_centers

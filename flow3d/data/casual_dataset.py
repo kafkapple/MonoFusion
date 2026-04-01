@@ -626,6 +626,9 @@ class CasualDataset(BaseDataset):
 
         depths = torch.stack([self.get_depth(i) for i in target_idcs], dim=0)
         inv_Ks = torch.linalg.inv(self.Ks[target_idcs])
+        # BUG INVESTIGATION (2026-04-01): self.w2cs stores c2w (MonoFusion convention).
+        # inv(c2w) = w2c, but named c2ws. Full convention audit needed before fixing.
+        # See research_notes.md "CRITICAL: Geometry Misalignment" for details.
         c2ws = torch.linalg.inv(self.w2cs[target_idcs])
 
         depths_valid_mask = (depths > 0).bool()

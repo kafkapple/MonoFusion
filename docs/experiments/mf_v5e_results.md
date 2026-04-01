@@ -43,35 +43,32 @@
 | 8 | Mask RGBA (paper SAM2) | Medium | Alpha binarize (1L) or SAM2 |
 | 13 | 80fr/4cam (paper 200+/5-9) | Medium | Data limitation |
 
-## Next Experiment Plan
+## Experiment Progression (V5e→V5h)
 
-### V5f — Diagnostic + Quick Wins (Next Session Priority)
-**Goal**: Improve rendering quality without infrastructure changes
-- Per-component loss logging (feat vs photo ratio)
-- Binarize RGBA alpha masks (1 line)
-- w_feat: 0.5 → 0.75 (incremental, not 1.5 directly)
-- Extend densification to 60% of training (more Gaussians)
-- Gaussian scale/opacity diagnostics
-- **Gate**: If photo/feat ratio > 3.0, reduce w_feat before continuing
+### V5f — Densification + w_feat (Completed)
+- w_feat 0.5→0.75, densify 40→60%, grad 0.0002→0.00015, max_gaussians 50k→100k
+- **Result**: Full PSNR 9.35, FG PSNR 10.28 — no improvement over V5e
+- **Finding**: Gaussian count 2.6× but PSNR flat. Loss ≠ PSNR (Key Insight #2).
 
-### V5g — Capacity Increase (If V5f renders sharper)
-- 450 epochs, max_gaussians=100k
-- Only proceed if V5f confirms photometric convergence
+### V5g — w_mask Fix + Opacity Reset OFF (Completed)
+- w_mask 7.0→1.0, opacity reset OFF, w_feat→1.5, 750ep
+- **Result**: FG PSNR 15.04 (ep13, best!) → 10.36 (ep480, degraded)
+- **Finding**: w_mask reduction effective, but opacity reset OFF caused Gaussian bloat (16k→105k)
+- **Critical Discovery**: Full-image PSNR ceiling ~9.2dB due to bg_color mismatch. FG-only PSNR is the correct metric.
 
-### V6 — Track Quality (If V5f still blurry)
-- CoTracker or BootsTAPIR (long-range tracks)
-- Prioritize over V5g if rendering quality plateaus
-- Requires: installation, track regeneration for 80 frames × 4 cameras
+### V5h — Controlled num_bg Comparison (Running)
+- V5h-1: num_bg=0 (FG-only), w_mask=7.0, opacity reset ON, w_feat=1.5, 300ep
+- V5h-2: num_bg=32 (FG+BG), w_mask=7.0, opacity reset ON, w_feat=1.5, 300ep
+- **Hypothesis**: Isolate BG effect. Winner gets 750ep extension.
 
-### V7 — Full Paper Alignment (Long-term)
-- DINOv2 ViT-L (1024d→PCA 32d)
-- DUSt3R camera optimization or learnable focal length
-- SAM2 masks
-- More cameras/frames if available
+### Future Directions
+- V6: CoTracker/BootsTAPIR (track quality upgrade)
+- V7: DINOv2 ViT-L, DUSt3R cameras, SAM2 masks (full paper alignment)
 
-## Git Commits This Session
+## Git Commits
 - `ac4b6bb`: V5d config + PCA pipeline + framework fixes (28 files)
 - `0e58111`: Opacity reset crash fix (3 files)
+- `5192d2c`: V5e results doc + fix render script weights_only
 
 ---
-*MonoFusion M5t2 PoC | 2026-03-31*
+*MonoFusion M5t2 PoC | Updated 2026-04-01*
