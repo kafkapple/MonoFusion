@@ -95,6 +95,7 @@ def create_m5t2_datasets(data_root: str, glb_step: int = 1, feat_dir_name: str =
             "hw": [meta["hw"][ci]],  # single camera
             "k": [[meta["k"][t][ci]] for t in range(T)],
             "w2c": [[meta["w2c"][t][ci]] for t in range(T)],
+            "camera_convention": meta.get("camera_convention", "c2w"),
         }
 
         cam_meta_path = cam_meta_dir / f"Dy_train_meta_cam{ci:02d}.json"
@@ -117,6 +118,8 @@ def create_m5t2_datasets(data_root: str, glb_step: int = 1, feat_dir_name: str =
                 video_name="_m5t2",
                 super_fast=False,
             )
+            # Set camera_id for per-camera depth scale alignment
+            dataset.camera_id = ci
             # Override feature directory if non-default (e.g., PCA reduced features)
             if feat_dir_name != "dinov2_features":
                 custom_feat_dir = data_root / feat_dir_name / seq_name

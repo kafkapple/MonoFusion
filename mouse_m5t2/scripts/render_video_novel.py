@@ -83,7 +83,11 @@ def render_video(model, data_root, output_dir, device, cam_idx=0, cam_name="m5t2
             print(f"    frame {t}/{T}")
 
     out_path = output_dir / f"R2_video_{cam_name}.mp4"
-    iio.imwrite(str(out_path), frames, fps=15)
+    import imageio
+    writer = imageio.get_writer(str(out_path), format='FFMPEG', fps=15, quality=8)
+    for frame in frames:
+        writer.append_data(frame)
+    writer.close()
     print(f"  Saved: {out_path}")
 
     # Also save a still comparison at F0, F30
@@ -142,15 +146,20 @@ def render_novel_views(model, output_dir, device, t_frame=15, n_interp=8):
 
     w2cs_np = model.w2cs.cpu().numpy()
     Ks_np = model.Ks.cpu().numpy()
-    n_cams = min(len(w2cs_np), 4)
+    n_total = len(w2cs_np)
+    n_cams = 4
+    n_frames = n_total // n_cams  # fused layout: cam_c * n_frames + t
 
     # Interpolation path: cam0→cam1→cam2→cam3→cam0 (closed loop)
+    # Use camera poses at t_frame for each camera
     all_novel_w2cs = []
     K_ref = Ks_np[0]  # use cam0 intrinsics for all novel views
 
     for i in range(n_cams):
         j = (i + 1) % n_cams
-        interp = interpolate_cameras(w2cs_np[i], w2cs_np[j], n_steps=n_interp)
+        idx_i = i * n_frames + t_frame
+        idx_j = j * n_frames + t_frame
+        interp = interpolate_cameras(w2cs_np[idx_i], w2cs_np[idx_j], n_steps=n_interp)
         all_novel_w2cs.extend(interp[:-1])  # avoid duplicate at boundary
 
     print(f"    {len(all_novel_w2cs)} novel viewpoints")
@@ -165,7 +174,11 @@ def render_novel_views(model, output_dir, device, t_frame=15, n_interp=8):
 
     # Save video
     out_path = output_dir / f"R3_novel_views_f{t_frame}.mp4"
-    iio.imwrite(str(out_path), frames, fps=8)
+    import imageio
+    writer = imageio.get_writer(str(out_path), format='FFMPEG', fps=8, quality=8)
+    for frame in frames:
+        writer.append_data(frame)
+    writer.close()
     print(f"  Saved: {out_path}")
 
     # Save grid (4×4 novel views)

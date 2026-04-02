@@ -105,6 +105,13 @@ class Trainer:
         self.reset_opacity_every = (
             self.optim_cfg.reset_opacity_every_n_controls * self.optim_cfg.control_every
         )
+        # Per-camera depth scale/shift for aligning MoGe relative depth.
+        # MoGe produces independent scale per view; these learnable params absorb
+        # the per-camera scale difference so depth loss becomes meaningful.
+        n_cameras = 6  # max cameras (unused cameras have no gradient)
+        self.depth_scales = torch.nn.Parameter(torch.ones(n_cameras, device=device))
+        self.depth_shifts = torch.nn.Parameter(torch.zeros(n_cameras, device=device))
+
         self.optimizers, self.scheduler = self.configure_optimizers()
 
         # running stats for adaptive density control
@@ -425,9 +432,8 @@ class Trainer:
                 * torch.var(self.model.bg.params["scales"], dim=-1).mean()
             )
             loss += mea_rgbbb
-        ###### batch_Stat ##########
-        assert not batch_stat
-        if batch_stat:
+        ###### batch_Stat (removed: dead code — assert always blocks entry) ##########
+        if False:  # batch_stat path disabled
             B = len(batch_stat) * batch_stat[0]["imgs"].shape[0]
             W, H = img_wh = batch_stat[0]["imgs"].shape[2:0:-1]
             
@@ -916,7 +922,14 @@ class Trainer:
 
         pred_depth = cast(torch.Tensor, rendered_all["depth"])
         pred_disp = 1.0 / (pred_depth + 1e-5)
-        tgt_disp = 1.0 / (depths[..., None] + 1e-5)
+
+        # Apply per-camera learned scale/shift to align MoGe relative depth
+        cam_ids = torch.cat([b["camera_id"] for b in batch], dim=0)
+        d_scales = self.depth_scales[cam_ids].view(-1, 1, 1, 1)
+        d_shifts = self.depth_shifts[cam_ids].view(-1, 1, 1, 1)
+        aligned_depths = d_scales * depths[..., None] + d_shifts
+        tgt_disp = 1.0 / (aligned_depths + 1e-5)
+
         depth_loss = masked_l1_loss(
             pred_disp,
             tgt_disp,
@@ -936,10 +949,9 @@ class Trainer:
         )
 
         loss += mapped_depth_loss * self.losses_cfg.w_depth_const
-        #  depth_gradient_loss = 0.0
         depth_gradient_loss = compute_gradient_loss(
             pred_disp,
-            tgt_disp,
+            tgt_disp,  # already aligned by per-camera scale/shift
             mask=depth_masks > 0.5,
             quantile=0.95,
         )
@@ -1330,6 +1342,18 @@ class Trainer:
             schedulers[name] = torch.optim.lr_scheduler.LambdaLR(
                 optim, functools.partial(fnc, lr_init=lr)
             )
+
+        # Per-camera depth scale/shift optimizer
+        depth_align_lr = 0.01
+        depth_optim = torch.optim.Adam([
+            {"params": self.depth_scales, "lr": depth_align_lr, "name": "depth_scales"},
+            {"params": self.depth_shifts, "lr": depth_align_lr, "name": "depth_shifts"},
+        ])
+        optimizers["depth_align"] = depth_optim
+        schedulers["depth_align"] = torch.optim.lr_scheduler.LambdaLR(
+            depth_optim, lambda _: 1.0
+        )
+
         return optimizers, schedulers
 
 

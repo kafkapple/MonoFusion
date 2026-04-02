@@ -1,4 +1,5 @@
 # no-split: upstream MonoFusion framework file — splitting breaks framework import structure
+import json
 import os
 from dataclasses import dataclass
 from functools import partial
@@ -26,14 +27,6 @@ from flow3d.data.utils import (
 )
 from flow3d.transforms import rt_to_mat4
 
-import os
-import numpy as np
-from torch.utils.data import Dataset
-import torch
-import torchvision.transforms as transforms
-from PIL import Image
-import torch.nn.functional as F
-import json 
 @dataclass
 class DavisDataConfig:
     seq_name: str
@@ -200,23 +193,13 @@ class CasualDataset(BaseDataset):
             self.min_, self.max_ = 0, max(len(image_files) - 1, 0)
 
 
-        # self.camera_path
-        self.hard_indx_dict = {
-          '_bike': [49, 349, 3], 
-          '_dance': [1477, 1778, 3],
-          '': [273, 294, 1],
-        }
-
-        print(self.min_, self.max_)
-        self.glb_first_indx = self.min_ #self.hard_indx_dict[self.video_name][0]
-        self.glb_last_indx = self.max_ #self.hard_indx_dict[self.video_name][1]
+        self.glb_first_indx = self.min_
+        self.glb_last_indx = self.max_
         self.glb_step = 1 if 'm5t2' in (video_name or '') else 3
 
         frame_names = [p.stem for p in image_files]
         if super_fast:
           frame_names=frame_names[-22:]
-        #print(frame_names)
-        #print(self.video_name)
 
         if end == -1:
             end = len(frame_names)
@@ -376,7 +359,7 @@ class CasualDataset(BaseDataset):
                   k, w2c = md['k'][t][c], np.linalg.inv(md['w2c'][t][c])
               if noise:
                 R = w2c[:3, :3]
-                t = w2c[:3, 3]
+                tvec = w2c[:3, 3]
 
                 # Define the maximum deviation in degrees and convert to radians
                 max_deviation_deg = 5
@@ -413,7 +396,7 @@ class CasualDataset(BaseDataset):
                 # Construct the new w2c matrix with the noisy rotation and original translation
                 w2c_new = np.eye(4)
                 w2c_new[:3, :3] = R_new
-                w2c_new[:3, 3] = t
+                w2c_new[:3, 3] = tvec
 
                 # Update w2c with the new matrix
                 w2c = w2c_new
@@ -588,7 +571,7 @@ class CasualDataset(BaseDataset):
             point_normals = normal_from_depth_image(depth, K, w2c)[bool_mask]
             point_colors = img[bool_mask]
             point_feats = feat[bool_mask]
-            point_sizes = depth[bool_mask] / ((K[0][0] + K[0][1])/2)
+            point_sizes = depth[bool_mask] / ((K[0][0] + K[1][1])/2)
 
 
             num_sel = max(len(points) // down_rate, min_per_frame)
@@ -878,6 +861,8 @@ class CasualDataset(BaseDataset):
             "imgs": self.get_image(index),
             "feats": self.get_feat(index),
             "depths": self.get_depth(index),
+            # Camera ID for per-camera depth scale alignment.
+            "camera_id": torch.tensor(getattr(self, 'camera_id', 0)),
         }
         tri_mask = self.get_mask(index)
         valid_mask = tri_mask != 0  # not fg or bg
