@@ -359,18 +359,21 @@ class CasualDataset(BaseDataset):
         ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             assert os.path.exists(path), f"Camera file {path} does not exist."
             md = json.load(open(path, 'r'))
-            c2ws = []
-            # print(md['hw'].shape)
+            # camera_convention: 'w2c' = field stores real w2c (e.g. OpenCV calibration)
+            #                    'c2w' = field stores c2w labeled as w2c (DUSt3R convention)
+            cam_convention = md.get('camera_convention', 'c2w')
+            w2c_poses = []
             print(np.array(md['k']).shape)
             print(np.array(md['w2c']).shape)
 
-            #for c in range(4, 5):
             c = int(self.seq_name[-1])
-            #for t in range(self.glb_first_indx, self.glb_last_indx, self.glb_step):
             T = len(md['k'])
             for t in range(0, T, self.glb_step):
               h, w = md['hw'][c]
-              k, w2c =  md['k'][t][c], np.linalg.inv(md['w2c'][t][c])
+              if cam_convention == 'w2c':
+                  k, w2c = md['k'][t][c], np.array(md['w2c'][t][c], dtype=np.float64)
+              else:
+                  k, w2c = md['k'][t][c], np.linalg.inv(md['w2c'][t][c])
               if noise:
                 R = w2c[:3, :3]
                 t = w2c[:3, 3]
@@ -415,19 +418,19 @@ class CasualDataset(BaseDataset):
                 # Update w2c with the new matrix
                 w2c = w2c_new
 
-              c2ws.append(w2c[None, ...])
+              w2c_poses.append(w2c[None, ...])
 
-            traj_c2w = np.concatenate(c2ws)
+            w2c_stack = np.concatenate(w2c_poses)
             sy, sx = H / h, W / w
             fx, fy, cx, cy = k[0][0],  k[1][1], k[0][2], k[1][2], # (4,)
 
             K = np.array([[fx * sx, 0, cx * sx], [0, fy * sy, cy * sy], [0, 0, 1]])  # (3, 3)
-            Ks = np.tile(K[None, ...], (len(traj_c2w), 1, 1))  # (N, 3, 3)
+            Ks = np.tile(K[None, ...], (len(w2c_stack), 1, 1))  # (N, 3, 3)
 
 
             kf_tstamps=None
             return (
-                torch.from_numpy(traj_c2w).float(),
+                torch.from_numpy(w2c_stack).float(),
                 torch.from_numpy(Ks).float(),
                 kf_tstamps,
             )
@@ -626,9 +629,8 @@ class CasualDataset(BaseDataset):
 
         depths = torch.stack([self.get_depth(i) for i in target_idcs], dim=0)
         inv_Ks = torch.linalg.inv(self.Ks[target_idcs])
-        # BUG INVESTIGATION (2026-04-01): self.w2cs stores c2w (MonoFusion convention).
-        # inv(c2w) = w2c, but named c2ws. Full convention audit needed before fixing.
-        # See research_notes.md "CRITICAL: Geometry Misalignment" for details.
+        # FIX (2026-04-01): self.w2cs now stores real w2c (camera_convention flag).
+        # inv(w2c) = c2w for camera-to-world unprojection in data/utils.py.
         c2ws = torch.linalg.inv(self.w2cs[target_idcs])
 
         depths_valid_mask = (depths > 0).bool()

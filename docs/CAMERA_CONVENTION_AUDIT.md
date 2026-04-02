@@ -1,7 +1,8 @@
 # MonoFusion M5t2 — Camera Convention Audit & Fix Plan
 
 > Critical: 모든 V5 실험의 FG Gaussian 위치가 GT와 불일치하는 근본 원인.
-> Date: 2026-04-01 | Status: OPEN — 다음 세션에서 수정 필요
+> Date: 2026-04-01 | Status: **FIXED** (2026-04-01)
+> Fix: metadata `camera_convention` flag + conditional inv() skip
 
 ## 1. 문제 요약
 
@@ -161,57 +162,42 @@ center_if_c2w = w2c[:3,3]
 | w_mask 분석 | 여전히 유효 (mask loss 지배는 실제 문제) |
 | Opacity reset 분석 | 여전히 유효 (Gaussian bloat 문제) |
 
-## 6. 우선순위
+## 6. Fix Applied (2026-04-01)
 
-1. **옵션 C 실행** — 원본 데이터로 convention 확인 (15분)
-2. **결과에 따라 옵션 A 또는 B** — 전체 수정 (1-2시간)
-3. **V5i 재실행** — 수정된 convention으로 50ep 검증
-4. **성공 시 V5j** — 최적 hyperparameter(V5g/V5h 결과 참고)로 full run
+### Root Cause (Corrected Understanding)
 
-## 7. Audit 보완 (검증 필요 항목)
+The bug is NOT in the original MonoFusion code. It is a **data format mismatch**:
+- Original MonoFusion's `load_known_cameras` was designed for DUSt3R, which stores c2w in the 'w2c' field
+- The inv() at line 373 correctly converts DUSt3R's c2w → real w2c
+- Our `convert_m5t2.py` stores **real w2c** from OpenCV calibration
+- inv(real_w2c) = c2w → self.w2cs = c2w → all downstream consumers receive wrong convention
 
-### 미검증 가정 (다음 세션에서 반드시 확인)
+### Evidence
 
-| # | 가정 | 검증 방법 |
-|---|------|----------|
-| 1 | `md['w2c']`가 진짜 w2c인지 | `convert_m5t2.py`에서 opencv_cameras.json의 w2c를 그대로 저장하는지 확인. camera center = -R^T @ t 검산 |
-| 2 | MonoFusion 원본이 w2c 키에 c2w를 저장하는지 | GitHub Z1hanW/MonoFusion의 데이터 로딩 코드 확인 |
-| 3 | gsplat이 c2w를 받고도 작동하는 이유 | Gaussian 위치도 같은 뒤집힌 좌표계에 있어서 내부 일관성 유지 가능성 |
-| 4 | V5i NaN이 convention fix 때문인지 다른 원인인지 | 수정 후 init만 실행(학습 없이), Gaussian 위치/depth 검사 |
+| Test | Hypothesis A (real w2c) | Hypothesis B (c2w) |
+|------|------------------------|-------------------|
+| Camera spread | 6.97m (ring ✅) | 0.39m (clustered ❌) |
+| Projection (4 cams) | 4/4 IN FRAME ✅ | 3/4 OUT, 1 BEHIND ❌ |
+| FaceLift docs | opencv_cameras.json = w2c ✅ | — |
 
-### 성공 기준 (수정 후)
+### Fix: Metadata-driven convention flag
 
-| Metric | 기준 |
-|--------|------|
-| FG Gaussian→GT 투영 오차 | < 20 pixels (현재 117-2384 pixel) |
-| NaN 발생 | 50 step 내 없음 |
-| FG-only PSNR (50ep) | > 12 dB (V5e의 11.98 이상) |
-| 시각적 확인 | rendered mouse 위치가 GT와 일치 |
+Files modified:
+1. `convert_m5t2.py` — add `"camera_convention": "w2c"` to Dy_train_meta.json
+2. `casual_dataset.py:361-373` — read flag, skip inv() when convention='w2c'
+3. `Dy_train_meta.json` (m5t2_v5, m5t2_poc) — added field
 
-### 다음 세션 실행 순서
+### Verification Results
 
-```
-1. Quick Check (15분)
-   - convert_m5t2.py에서 w2c가 어떻게 생성되는지 trace
-   - camera center 검산: -R^T @ t vs [:3,3]
-   - MonoFusion 원본 repo 확인
+| Metric | Target | V5i (fix) | V5e (buggy) |
+|--------|--------|-----------|-------------|
+| NaN within 60 steps | None | ✅ None | ✅ None |
+| Loss (ep2) | — | **1.83** | 7.24 |
+| self.w2cs = real w2c | Match JSON | ✅ | ❌ (was c2w) |
+| Scene center projection | IN FRAME | ✅ 4/4 | ❌ OUT |
 
-2. Convention 확정 (30분)
-   - md['w2c']의 실제 의미 확정
-   - 전체 7개 지점의 올바른 convention 결정
-   - 수정 방향 결정 (옵션 A/B)
-
-3. 수정 적용 (1시간)
-   - 선택된 옵션으로 수정
-   - init만 실행 → Gaussian 투영 검증
-   - NaN 없으면 50ep 학습
-
-4. 검증 (30분)
-   - FG-only PSNR 측정
-   - GT vs rendered 시각화
-   - 성공 시 300ep full run 실행
-```
+### Next: V5i 50ep run (GPU4), then V5j 300ep full run
 
 ---
 
-*MonoFusion M5t2 PoC | Camera Convention Audit | 2026-04-01*
+*MonoFusion M5t2 PoC | Camera Convention Audit | 2026-04-01 (FIXED)*

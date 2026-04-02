@@ -222,6 +222,10 @@ def convert_dataset(
         "hw": meta_hw,
         "k": meta_k,
         "w2c": meta_w2c,
+        # 'w2c' field stores real world-to-camera matrices from OpenCV calibration.
+        # Original MonoFusion expects DUSt3R convention (c2w stored as 'w2c').
+        # This flag tells load_known_cameras to skip the inv() call.
+        "camera_convention": "w2c",
     }
     with open(raw_dir / "Dy_train_meta.json", "w") as f:
         json.dump(meta, f, indent=2)
