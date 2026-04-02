@@ -178,7 +178,7 @@ def build_meta_json(K, R, t, num_frames, num_cams, output_path, resize_wh=None,
         k_per_time.append(k_per_cam)
         w2c_per_time.append(w2c_per_cam)
 
-    meta = {"hw": hw, "k": k_per_time, "w2c": w2c_per_time}
+    meta = {"hw": hw, "k": k_per_time, "w2c": w2c_per_time, "camera_convention": "w2c"}
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
         json.dump(meta, f)

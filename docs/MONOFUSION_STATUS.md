@@ -6,18 +6,18 @@
 
 | Item | Status | Detail |
 |------|--------|--------|
-| **Dataset** | **markerless_v6** | Raw data, per-camera intrinsic, 6cam, 1152×1024 |
+| **Dataset** | **markerless_v7** | Raw data, per-camera intrinsic, 4cam, 512×512 |
 | **Best model** | V5j 300ep (m5t2_v5) | loss 2.06, PSNR 13.36 — BUT used wrong dataset (FaceLift) |
 | **Camera convention** | FIXED | metadata flag `camera_convention: w2c` |
-| **Next** | V6a on markerless_v6 (correct intrinsics) |
+| **Next** | V7a on markerless_v7 (512×512, per-cam K, 4cam, 80f) |
 
 ### ⚠️ CRITICAL: Dataset Switch (2026-04-02)
 
-**m5t2_v5 (FaceLift전처리) → markerless_v6 (원본 raw) 전환.**
+**m5t2_v5 (FaceLift전처리) → markerless_v7 (원본 raw) 전환.**
 
 m5t2_v5의 모든 실험(V5b~V5l)은 FaceLift가 per-camera intrinsic을 동일 값(fx=549, cx=cy=256)으로 정규화한 데이터를 사용. 원본 카메라는 fx=1557~1637, cx=583~642, cy=417~552로 모두 다름. 이 정규화가 multi-view geometry를 파괴하여 novel view "flat photo stacking" 발생.
 
-markerless_v6은 원본 raw에서 직접 변환, per-camera intrinsic 보존.
+markerless_v7은 원본 raw에서 직접 변환, per-camera intrinsic 보존.
 
 ### V5j Metrics (render_and_evaluate.py)
 
@@ -115,7 +115,7 @@ else:
 
 ### Server (gpu03)
 ```
-/node_data/joon/data/monofusion/markerless_v6/    ← CURRENT (raw data, correct intrinsics)
+/node_data/joon/data/monofusion/markerless_v7/    ← CURRENT (raw data, correct intrinsics)
 ├── images/markerless_cam00~05/   # 6cam × 150frames, 1152×1024
 ├── masks/                        # FG masks
 ├── aligned_moge_depth/m5t2/      # MoGe depth per camera
