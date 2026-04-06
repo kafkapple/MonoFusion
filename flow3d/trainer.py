@@ -1028,7 +1028,7 @@ class Trainer:
             self.psnr_metric.reset()
             stats["train/psnr"] = psnr
             if self.model.has_bg:
-                bg_psnr = self.bg_psnr_metric(rendered_imgs, imgs, 1.0 - masks)
+                bg_psnr = self.bg_psnr_metric(rendered_imgs, imgs, (1.0 - masks) * valid_masks)
                 fg_psnr = self.fg_psnr_metric(rendered_imgs, imgs, masks)
                 self.bg_psnr_metric.reset()
                 self.fg_psnr_metric.reset()

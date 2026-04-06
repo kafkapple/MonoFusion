@@ -95,7 +95,7 @@ def create_m5t2_datasets(data_root: str, glb_step: int = 1, feat_dir_name: str =
             "hw": [meta["hw"][ci]],  # single camera
             "k": [[meta["k"][t][ci]] for t in range(T)],
             "w2c": [[meta["w2c"][t][ci]] for t in range(T)],
-            "camera_convention": meta.get("camera_convention", "c2w"),
+            "camera_convention": meta["camera_convention"],  # MUST exist — silent c2w fallback caused 8 wasted experiments
         }
 
         cam_meta_path = cam_meta_dir / f"Dy_train_meta_cam{ci:02d}.json"
