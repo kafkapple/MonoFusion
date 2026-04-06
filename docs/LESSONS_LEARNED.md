@@ -121,5 +121,48 @@ After First Results:
 
 ---
 
-*MonoFusion M5t2 PoC | Lessons Learned | 2026-04-02*
-*Validated by 3-model MoA deliberation (Claude/Gemini/GPT)*
+## Experiment Design (Added 2026-04-05)
+
+### 9. Never Change Multiple Variables Simultaneously
+
+**Rule**: Each experiment should change exactly ONE variable from a controlled baseline.
+
+**Evidence**: V7c changed 4 variables at once (BG LR, FG count, BG count, motion bases). Result: loss ~48 at ep127 (worse than V7b's 7.71), but impossible to attribute the regression to any specific variable. 5-iteration 3-model deliberation confirmed: "scientifically worthless if both succeed and fail."
+
+**Apply**: Use V8-style isolation (V8a baseline → E1/E2/E3 single-variable) with pre-defined success criteria (>1dB PSNR improvement = significant).
+
+### 10. Bare `except:` Is a Silent Killer in ML Code
+
+**Rule**: Never use bare `except:` in training code. Always catch specific exceptions.
+
+**Evidence**: `trainer.py` had `try: stats["feat_loss"] = feat_loss.item() / except: stats = {...without feat_loss}`. This silently swallowed `NameError` when `feat_loss` was undefined (has_bg=False path), making it appear that feat_loss was always computed when it wasn't. This pattern was present in 2 locations in compute_losses and compute_stat_losses.
+
+**Pattern**: For conditional variables, use explicit check:
+```python
+stats = {guaranteed_keys}
+try:
+    stats["optional_key"] = optional_var.item()
+except NameError:
+    pass
+```
+
+### 11. PSNR Mask Must Match Evaluation Region
+
+**Rule**: When computing FG/BG PSNR, verify the mask variable hasn't been reassigned.
+
+**Evidence**: `compute_stat_losses` had `masks = valid_masks` (line 614) that overwrote the FG mask defined earlier. This made all PSNR computations use the full-frame valid mask instead of the FG-only mask, inflating PSNR by including easy-to-predict static background pixels.
+
+**Check**: `masks` used in PSNR should be `b["masks"] * valid_masks` (FG segmentation × frame validity), NOT `valid_masks` alone.
+
+### 12. Define Success Criteria Before Running Experiments
+
+**Rule**: Write down quantitative success/failure thresholds before executing.
+
+**Evidence**: V5b-V7c: 11+ experiments with no pre-defined "this PSNR means success." Post-hoc interpretation led to ambiguous conclusions ("loss decreased, but is 7.71 good or bad?").
+
+**Template**: `>1.0 dB improvement = significant, 0.3-1.0 = marginal, <0.3 = no effect`.
+
+---
+
+*MonoFusion M5t2 PoC | Lessons Learned | 2026-04-05*
+*Validated by 3-model MoA deliberation (Claude/Gemini/GPT) + 5-iteration audit*

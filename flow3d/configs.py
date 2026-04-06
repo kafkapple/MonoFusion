@@ -29,7 +29,7 @@ class BGLRGTConfig:
     scales: float = 1e-3
     quats: float = 1e-3
     colors: float = 1e-2
-    feats: float = 1e-9
+    feats: float = 1e-4  # was 1e-9 (effectively frozen); raised to match FG feats LR
 
 @dataclass
 class MotionLRConfig:

@@ -183,6 +183,11 @@ class Trainer:
         trainer.global_step = ckpt.get("global_step", 0)
         start_epoch = ckpt.get("epoch", 0)
         trainer.set_epoch(start_epoch)
+        # Restore per-camera depth alignment params if saved
+        if "depth_scales" in ckpt and hasattr(trainer, 'depth_scales'):
+            trainer.depth_scales.data = ckpt["depth_scales"].to(device)
+        if "depth_shifts" in ckpt and hasattr(trainer, 'depth_shifts'):
+            trainer.depth_shifts.data = ckpt["depth_shifts"].to(device)
         return trainer, start_epoch
 
     def load_checkpoint_optimizers(self, opt_ckpt):
@@ -224,8 +229,7 @@ class Trainer:
 
         loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_stat_losses(batch, batch_stat)
         self.stats = stats
-        if wandb is not None:
-            wandb.log(self.stats)
+        # wandb logging moved to train_m5t2.py epoch loop to avoid double-log + x-axis desync
         self.num_rays_per_sec=num_rays_per_sec
         self.num_rays_per_step = num_rays_per_step
         if loss.isnan():
@@ -242,8 +246,7 @@ class Trainer:
 
         loss, stats, num_rays_per_step, num_rays_per_sec = self.compute_losses(batch)
         self.stats = stats
-        if wandb is not None:
-            wandb.log(self.stats)
+        # wandb logging moved to train_m5t2.py epoch loop to avoid double-log + x-axis desync
         self.num_rays_per_sec=num_rays_per_sec
         self.num_rays_per_step = num_rays_per_step
         if loss.isnan():
@@ -296,7 +299,7 @@ class Trainer:
         if 'depths' in batch[0].keys():
             depths = torch.cat([b["depths"] for b in batch], dim=0)
         valid_masks = torch.cat([b.get("valid_masks",  torch.ones_like(b["imgs"][..., 0])) for b in batch], dim=0)  # (sum of B across batches, H, W)
-        #print(valid_masks.shape, imgs.shape, feats.shape, 'shappppeeCHEKC')
+        masks = torch.cat([b["masks"] for b in batch], dim=0) * valid_masks  # (B, H, W) — needed by both has_bg branches
         _tic = time.time()
 
         loss = 0.0
@@ -579,27 +582,17 @@ class Trainer:
                 )
 
 
+        stats = {
+            "train/loss": loss.item(),
+            "train/rgb_loss": rgb_loss.item(),
+            "train/num_gaussians": self.model.num_gaussians,
+            "train/num_fg_gaussians": self.model.num_fg_gaussians,
+            "train/num_bg_gaussians": self.model.num_bg_gaussians,
+        }
         try:
-          stats = {
-              "train/loss": loss.item(),
-              "train/feat_loss": feat_loss.item(),
-              # "train/depth_loss": depth_loss.item(),
-              "train/rgb_loss": rgb_loss.item(),
-              #"train/std_loss": mea_rgbbb.item(),
-              "train/num_gaussians": self.model.num_gaussians,
-              "train/num_fg_gaussians": self.model.num_fg_gaussians,
-              "train/num_bg_gaussians": self.model.num_bg_gaussians,
-          }
-        except:
-          stats = {
-              "train/loss": loss.item(),
-              # "train/depth_loss": depth_loss.item(),
-              "train/rgb_loss": rgb_loss.item(),
-              #"train/std_loss": mea_rgbbb.item(),
-              "train/num_gaussians": self.model.num_gaussians,
-              "train/num_fg_gaussians": self.model.num_fg_gaussians,
-              "train/num_bg_gaussians": self.model.num_bg_gaussians,
-          }           
+            stats["train/feat_loss"] = feat_loss.item()
+        except NameError:
+            pass           
     
 
         '''stats = {
@@ -618,7 +611,7 @@ class Trainer:
             "train/num_bg_gaussians": self.model.num_bg_gaussians,
         }'''
     
-        masks = valid_masks
+        # PSNR uses the original FG mask (defined at line ~302), not valid_masks
         with torch.no_grad():
             psnr = self.psnr_metric(
                 rendered_imgs, imgs, masks if not self.model.has_bg else valid_masks
@@ -626,7 +619,7 @@ class Trainer:
             self.psnr_metric.reset()
             stats["train/psnr"] = psnr
             if self.model.has_bg:
-                bg_psnr = self.bg_psnr_metric(rendered_imgs, imgs, 1.0 - masks)
+                bg_psnr = self.bg_psnr_metric(rendered_imgs, imgs, (1.0 - masks) * valid_masks)
                 fg_psnr = self.fg_psnr_metric(rendered_imgs, imgs, masks)
                 self.bg_psnr_metric.reset()
                 self.fg_psnr_metric.reset()
@@ -1005,37 +998,25 @@ class Trainer:
         z_accel_loss = compute_z_acc_loss(means_fg_nbs, w2cs)
         loss += self.losses_cfg.w_z_accel * z_accel_loss
         # Prepare stats for logging.
+        # Build stats dict safely — conditional losses may not exist (e.g., feat_loss when has_bg=False)
+        stats = {
+            "train/loss": loss.item(),
+            "train/rgb_loss": rgb_loss.item(),
+            "train/mask_loss": mask_loss.item(),
+            "train/depth_loss": depth_loss.item(),
+            "train/depth_gradient_loss": depth_gradient_loss.item(),
+            "train/mapped_depth_loss": mapped_depth_loss.item(),
+            "train/track_2d_loss": track_2d_loss.item(),
+            "train/small_accel_loss": small_accel_loss.item(),
+            "train/z_acc_loss": z_accel_loss.item(),
+            "train/num_gaussians": self.model.num_gaussians,
+            "train/num_fg_gaussians": self.model.num_fg_gaussians,
+            "train/num_bg_gaussians": self.model.num_bg_gaussians,
+        }
         try:
-          stats = {
-              "train/loss": loss.item(),
-              "train/rgb_loss": rgb_loss.item(),
-              "train/feat_loss": feat_loss.item(),
-              "train/mask_loss": mask_loss.item(),
-              "train/depth_loss": depth_loss.item(),
-              "train/depth_gradient_loss": depth_gradient_loss.item(),
-              "train/mapped_depth_loss": mapped_depth_loss.item(),
-              "train/track_2d_loss": track_2d_loss.item(),
-              "train/small_accel_loss": small_accel_loss.item(),
-              "train/z_acc_loss": z_accel_loss.item(),
-              "train/num_gaussians": self.model.num_gaussians,
-              "train/num_fg_gaussians": self.model.num_fg_gaussians,
-              "train/num_bg_gaussians": self.model.num_bg_gaussians,
-          }
-        except:
-          stats = {
-              "train/loss": loss.item(),
-              "train/rgb_loss": rgb_loss.item(),
-              "train/mask_loss": mask_loss.item(),
-              "train/depth_loss": depth_loss.item(),
-              "train/depth_gradient_loss": depth_gradient_loss.item(),
-              "train/mapped_depth_loss": mapped_depth_loss.item(),
-              "train/track_2d_loss": track_2d_loss.item(),
-              "train/small_accel_loss": small_accel_loss.item(),
-              "train/z_acc_loss": z_accel_loss.item(),
-              "train/num_gaussians": self.model.num_gaussians,
-              "train/num_fg_gaussians": self.model.num_fg_gaussians,
-              "train/num_bg_gaussians": self.model.num_bg_gaussians,
-          }          
+            stats["train/feat_loss"] = feat_loss.item()
+        except NameError:
+            pass  # feat_loss not computed (has_bg=False or feat not rendered)          
 
 
 

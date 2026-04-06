@@ -1,15 +1,17 @@
 # MonoFusion M5t2 PoC — Project Status
 
-> Last: 2026-04-02 | V5j = first successful reconstruction
+> Last: 2026-04-05 | Phase: V8 single-variable isolation experiments
 
 ## 1. Current State
 
 | Item | Status | Detail |
 |------|--------|--------|
-| **Dataset** | **markerless_v7** | Raw data, per-camera intrinsic, 4cam, 512×512 |
-| **Best model** | V5j 300ep (m5t2_v5) | loss 2.06, PSNR 13.36 — BUT used wrong dataset (FaceLift) |
+| **Dataset** | **markerless_v7** | Raw data, per-camera intrinsic, 4cam×80f, 512×512 |
+| **Best model** | V5j 300ep (m5t2_v5, DELETED) | loss 2.06, PSNR 13.36 — DEPRECATED dataset |
 | **Camera convention** | FIXED | metadata flag `camera_convention: w2c` |
-| **Next** | V7a on markerless_v7 (512×512, per-cam K, 4cam, 80f) |
+| **V7c** | Running (ep127/300) | All params changed, loss ~48 (unstable), GPU4 |
+| **Next** | V8a baseline → E1/E2/E3 isolation | See [V8 plan](experiments/mf_v8_isolation_plan.md) |
+| **Git** | origin=kafkapple, upstream=Z1hanW | Fork safety established |
 
 ### ⚠️ CRITICAL: Dataset Switch (2026-04-02)
 
@@ -76,6 +78,9 @@ else:
 | V5f-h | 50-300 | 7+ | Densify/track/hyperparams | All had camera convention bug |
 | **V5i** | 50 | **2.53** | **Convention fix** | Sparse but correct position |
 | **V5j** | 300 | **2.06** | Fix + bg32 + opacity reset | **First successful reconstruction** |
+| V7a | 100 | 8.91 | markerless_v7 dataset | New data, BG frozen |
+| V7b | 300 | 7.71 | 300ep on markerless_v7 | BG frozen (LR~1e-9) |
+| V7c | 300 | ~48@ep127 | All params → paper spec | Unstable, confounded |
 
 ## 4. Critical Bugs Resolved
 
@@ -88,20 +93,38 @@ else:
 | DINOv2 resolution | IndexError crash | ViT-S/14 → 37×37 vs 512×512 | F.interpolate upsample |
 | dyn_mask bool cast | Wrong FG/BG | float32 -1.0 → True | `raw > 0` |
 
-## 5. Open Issues & Next Steps
+## 5. V7 Series & Phase 0 (2026-04-05)
 
-### Depth Alignment (Priority 1)
-- MoGe relative depth → cross-camera scale 불일치 (cam1-3: 43-129px 투영 오차)
-- 해결: SfM(COLMAP) 기반 metric scale alignment
+### V7 Experiments (markerless_v7 dataset)
 
-### BG Separation (Priority 2)
-- Option A: BG pixel을 mask out (black) → FG 집중
-- Option B: 2-stage (BG 50ep freeze → FG joint)
+| Exp | FG | BG | Bases | BG LR | Epochs | Loss | Notes |
+|-----|-----|------|-------|-------|--------|------|-------|
+| V7a | 5K | 10K | 10 | frozen | 100 | 8.91 | Quick test |
+| V7b | 5K | 10K | 10 | frozen | 300 | 7.71 | Full run, no PSNR |
+| V7c | 18K | 100K→985K | 28 | **paper spec** | 300 (running) | ~48@ep127 | Unstable, all params changed |
 
-### Quality Improvements
-- ViT-S → ViT-B/L (feature quality)
-- w_depth_reg 활성화 (depth 정합 후)
-- CoTracker (RAFT drift 대체)
+### Phase 0 Code Fixes (MoA+Audit identified, 6 fixes applied)
+
+| Fix | File | Issue |
+|-----|------|-------|
+| BG LR selectable (--bg_lr_config) | train_m5t2.py | BGLRConfig(~1e-9) was default, paper spec is BGLRGTConfig |
+| bare except→except NameError | trainer.py ×2 | Silent error masking |
+| wandb double-log removed | trainer.py ×2 | x-axis desync in wandb charts |
+| depth_scales/shifts ckpt save+load | trainer.py + train_m5t2.py | Params lost on resume |
+| PSNR mask corruption fixed | trainer.py | masks=valid_masks was overwriting FG mask |
+| Seed control (--seed) | train_m5t2.py | 5-source deterministic: torch+cuda+numpy+random+cudnn |
+
+### V8 Isolation Plan (→ [detail](experiments/mf_v8_isolation_plan.md))
+
+V8a (baseline, seed=42, BG frozen) → E1 (BG LR only) → E2 (FG 18K) → E3 (bases 28)
+- Success: PSNR >1dB improvement = variable matters
+- 5-iteration deliberation (3 models): EXECUTE verdict
+
+### Open Issues
+
+- Depth alignment: MoGe relative depth → per-camera scale (learned params added, [plan](DEPTH_ALIGNMENT_PLAN.md))
+- V7c loss instability: increasing after ep30 minimum — may indicate BG LR too aggressive at 985K scale
+- H100 incompatibility: torch 2.1+cu118 lacks sm_90 → A40 only
 
 ## 6. File Locations
 
@@ -141,12 +164,24 @@ mouse_m5t2/scripts/
 ```
 RGB (4cam×80f) → [RAFT tracks + MoGe depth + DINOv2 feats + SAM2 masks]
     → casual_dataset.py (camera_convention flag)
-    → 4D Gaussian Splatting: canonical 3DGS + SE(3) motion bases (K=10)
-    → gsplat rasterization → L_rgb + L_track + L_mask + L_feat
+    → 4D Gaussian Splatting: canonical 3DGS + SE(3) motion bases (K=10 or 28)
+    → gsplat rasterization → L_rgb + L_track + L_mask + L_feat + L_depth
 ```
 
 Key design: SE(3) basis trajectories (not MLP). K shared rigid transforms, per-Gaussian linear combination. Multi-view consistent by construction.
 
+### Key Training Args (train_m5t2.py)
+
+| Arg | Default | Description |
+|-----|---------|-------------|
+| `--seed N` | None | Reproducibility (torch+cuda+numpy+random+cudnn) |
+| `--bg_lr_config gt\|frozen` | gt | BG LR: paper spec (gt) or ~1e-9 (frozen) |
+| `--num_fg` | 5000 | FG Gaussian count (paper: 18K) |
+| `--num_bg` | 10000 | BG Gaussian seed count (paper: 1.2M) |
+| `--num_motion_bases` | 10 | Motion bases (paper: 28) |
+| `--w_feat` | 0.75 | Feature loss weight (paper: 1.5 with PCA32) |
+| `--max_gaussians` | 100000 | Hard cap on densification (0=uncapped) |
+
 ---
 
-*MonoFusion M5t2 PoC | Project Status | 2026-04-02*
+*MonoFusion M5t2 PoC | Project Status | 2026-04-05*

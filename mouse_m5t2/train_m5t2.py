@@ -173,7 +173,23 @@ def main():
                         help="Mask loss weight (paper 7.0, reduce for small FG ratio)")
     parser.add_argument("--disable_opacity_reset", action="store_true",
                         help="Disable periodic opacity resets (better for dynamic scenes)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Random seed for reproducibility (sets torch+numpy+cuda)")
+    parser.add_argument("--bg_lr_config", type=str, default="gt",
+                        choices=["gt", "frozen"],
+                        help="BG LR config: 'gt'=BGLRGTConfig (paper spec), 'frozen'=BGLRConfig (~1e-9)")
     args = parser.parse_args()
+
+    # Reproducibility: set seeds before any stochastic operation
+    if args.seed is not None:
+        import random
+        random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+        np.random.seed(args.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        print(f"  Random seed: {args.seed} (deterministic mode)")
 
     if args.output_dir is None:
         args.output_dir = str(Path(args.data_root) / "results")
@@ -194,6 +210,12 @@ def main():
                 "num_motion_bases": args.num_motion_bases,
                 "num_epochs": args.num_epochs,
                 "output_dir": args.output_dir,
+                "seed": args.seed,
+                "bg_lr_config": args.bg_lr_config,
+                "w_feat": args.w_feat,
+                "w_mask": args.w_mask,
+                "w_depth_reg": args.w_depth_reg,
+                "max_gaussians": args.max_gaussians,
             },
             dir=args.output_dir,
         )
@@ -284,8 +306,10 @@ def main():
     )
 
     # Load trainer from checkpoint
-    from flow3d.configs import FGLRConfig, BGLRConfig, MotionLRConfig
-    lr_cfg = SceneLRConfig(fg=FGLRConfig(), bg=BGLRConfig(), motion_bases=MotionLRConfig())
+    from flow3d.configs import FGLRConfig, BGLRConfig, BGLRGTConfig, MotionLRConfig
+    bg_lr = BGLRGTConfig() if args.bg_lr_config == "gt" else BGLRConfig()
+    lr_cfg = SceneLRConfig(fg=FGLRConfig(), bg=bg_lr, motion_bases=MotionLRConfig())
+    print(f"  BG LR config: {args.bg_lr_config} (means={bg_lr.means}, feats={bg_lr.feats})")
     # V5d settings (MoA+Audit consensus):
     # - w_feat: 0.5 default with PCA 32d + L2 norm (paper 1.5, conservative start)
     # - w_depth_reg: 0.0 (paper default — nonzero was confirmed destabilizer)
@@ -354,14 +378,20 @@ def main():
     preview_dir.mkdir(parents=True, exist_ok=True)
 
     def save_ckpt(path, epoch, loss_val=None, tag=""):
-        torch.save({
+        ckpt_data = {
             "model": trainer.model.state_dict(),
             "optimizers": {k: v.state_dict() for k, v in trainer.optimizers.items()},
             "schedulers": {k: v.state_dict() for k, v in trainer.scheduler.items()},
             "epoch": epoch,
             "global_step": trainer.global_step,
             "avg_loss": loss_val,
-        }, path)
+        }
+        # Save per-camera depth alignment params (not in model.state_dict)
+        if hasattr(trainer, 'depth_scales'):
+            ckpt_data["depth_scales"] = trainer.depth_scales.data
+        if hasattr(trainer, 'depth_shifts'):
+            ckpt_data["depth_shifts"] = trainer.depth_shifts.data
+        torch.save(ckpt_data, path)
         print(f"  Checkpoint saved: {os.path.basename(path)} {tag}")
         print(f"  Gaussians: {trainer.model.num_gaussians}")
 
@@ -403,6 +433,20 @@ def main():
         except Exception as e:
             print(f"  Preview failed: {e}")
 
+    # Pre-load viz module once (was previously reloaded every save_interval epochs)
+    try:
+        import importlib.util
+        _vzmod_path = str(MONOFUSION_ROOT / "mouse_m5t2" / "scripts" / "viz_scene_flow.py")
+        _spec = importlib.util.spec_from_file_location("viz_scene_flow", _vzmod_path)
+        _vzmod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_vzmod)
+        viz_magnitude_heatmap = _vzmod.viz_magnitude_heatmap
+        viz_trajectory_trails = _vzmod.viz_trajectory_trails
+        _viz_available = True
+    except Exception as e:
+        print(f"  Motion viz unavailable: {e}")
+        _viz_available = False
+
     w_feat_target = trainer.losses_cfg.w_feat
     ramp_start = args.feat_ramp_start_epoch
     ramp_end = args.feat_ramp_end_epoch
@@ -437,7 +481,14 @@ def main():
 
         avg_loss = sum(step_losses) / len(step_losses) if step_losses else 0
         epoch_losses.append(avg_loss)
-        print(f"\n  Epoch {epoch}: avg_loss={avg_loss:.6f} ({len(step_losses)} steps)")
+        # Extract PSNR from last step's stats for console output
+        psnr_str = ""
+        if hasattr(trainer, 'stats') and trainer.stats:
+            psnr_val = trainer.stats.get("train/psnr")
+            if psnr_val is not None:
+                psnr_val = psnr_val.item() if hasattr(psnr_val, 'item') else psnr_val
+                psnr_str = f", PSNR={psnr_val:.2f}"
+        print(f"\n  Epoch {epoch}: avg_loss={avg_loss:.6f} ({len(step_losses)} steps){psnr_str}")
 
         # Wandb epoch logging (FaceLift pattern: train/* namespace)
         log_dict = {
@@ -448,11 +499,13 @@ def main():
             "train/num_fg_gaussians": trainer.model.num_fg_gaussians,
             "train/best_loss": best_loss,
         }
-        # Log per-component losses from trainer stats if available
+        # Log per-component losses + PSNR from trainer stats (single source of truth)
         if hasattr(trainer, 'stats') and trainer.stats:
             for k, v in trainer.stats.items():
                 if isinstance(v, (int, float)):
-                    log_dict[f"loss/{k}"] = v
+                    log_dict[k] = v
+                elif hasattr(v, 'item'):  # torch.Tensor scalars (PSNR, etc.)
+                    log_dict[k] = v.item()
 
         # Motion metrics (cheap scalars, every epoch)
         try:
@@ -499,15 +552,10 @@ def main():
                 vis_log["vis/gt_vs_rendered"] = wandb.Image(
                     str(preview_path), caption=f"Epoch {epoch} | Loss {avg_loss:.4f}")
 
-            # Motion visualizations (reuse viz_scene_flow.py functions)
+            # Motion visualizations
             try:
-                import importlib.util
-                _vzmod_path = str(MONOFUSION_ROOT / "mouse_m5t2" / "scripts" / "viz_scene_flow.py")
-                _spec = importlib.util.spec_from_file_location("viz_scene_flow", _vzmod_path)
-                _vzmod = importlib.util.module_from_spec(_spec)
-                _spec.loader.exec_module(_vzmod)
-                viz_magnitude_heatmap = _vzmod.viz_magnitude_heatmap
-                viz_trajectory_trails = _vzmod.viz_trajectory_trails
+                if not _viz_available:
+                    raise RuntimeError("viz module not loaded")
                 with torch.no_grad():
                     # Scene flow heatmap: frame 0 → frame T//4
                     t_mid = n_frames // 4
