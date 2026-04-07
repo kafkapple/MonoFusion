@@ -12,13 +12,14 @@
 ### Audits & Root Cause Analysis
 | File | Description |
 |------|-------------|
+| 🚨 [V8/V9 Artifact Audit](../../results/MonoFusion/AUDIT_REPORT_V8V9_ARTIFACT.md) | **Killer test reveals V8 E1 +16.7 dB was BG-only; FG stayed at PSNR 11. Read this first.** |
 | [CAMERA_CONVENTION_AUDIT.md](CAMERA_CONVENTION_AUDIT.md) | Camera convention bug (w2c/c2w mismatch) — root cause, evidence, fix |
 | [DEPTH_ALIGNMENT_PLAN.md](DEPTH_ALIGNMENT_PLAN.md) | MoGe relative depth → metric scale alignment plan |
 
 ### Experiments
 | File | Description |
 |------|-------------|
-| [experiments/mf_v8_results.md](experiments/mf_v8_results.md) | 🏆 **V8 results: BG unfrozen → +16.7 dB PSNR breakthrough** |
+| [experiments/mf_v8_results.md](experiments/mf_v8_results.md) | ⚠️ V8 results (verdict revised by audit — see header) |
 | [experiments/mf_v8_isolation_plan.md](experiments/mf_v8_isolation_plan.md) | V8 plan (pre-experiment): V8a baseline + E1/E2/E3 |
 | [experiments/mf_v5e_results.md](experiments/mf_v5e_results.md) | V5e first convergent run results |
 
@@ -34,7 +35,7 @@
 ## Quick Links
 
 - **Data**: `gpu03:/node_data/joon/data/monofusion/markerless_v7/` (CURRENT)
-- **🏆 Best model (E1)**: `results_e1/checkpoints/best.ckpt` (loss 4.95, **PSNR 25.80 dB**)
+- **Best model (FG metric)**: E1/V9c tied — FG PSNR ~11 dB (mouse barely reconstructed; see audit). Full PSNR 25-26 was BG-dominated artifact.
 - **Scripts**: `mouse_m5t2/scripts/` | Training: `mouse_m5t2/train_m5t2.py`
 - **Conda**: `monofusion` (cu118, A40) — `CC=x86_64-conda-linux-gnu-gcc`
 - **Git**: origin=kafkapple/MonoFusion, upstream=Z1hanW/MonoFusion

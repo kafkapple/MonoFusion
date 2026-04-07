@@ -162,24 +162,35 @@ except NameError:
 
 **Template**: `>1.0 dB improvement = significant, 0.3-1.0 = marginal, <0.3 = no effect`.
 
-### 13. BG Learning Is Required for FG Quality (V8 Breakthrough)
+### 13. BG Learning Is Necessary But Not Sufficient (V8 partial finding, revised by V8/V9 audit)
 
-**Rule**: When mask compositing renders both FG and BG, you MUST allow BG Gaussians to learn. Frozen BG poisons FG gradients.
+> **2026-04-07 PM revision**: This lesson was originally framed as "BG learning required for FG quality" based on V8 E1 showing +16.73 dB Full PSNR. The killer test (LESSONS §17) revealed that the improvement was BG learning the static scene; FG (mouse) stayed at PSNR ~11 dB throughout. The lesson is still valid in the necessary direction (frozen BG IS broken) but the original framing overstated the conclusion.
 
-**Evidence**: V8 single-variable isolation (2026-04-07):
-- V8a (BG frozen): full PSNR 9.07 dB
-- E1 (BG unfrozen, only change): full PSNR **25.80 dB** = **+16.73 dB**
-- E2 (FG 18K, BG frozen): 6.44 dB — actually WORSE
-- E3 (bases 28, BG frozen): 7.07 dB — actually WORSE
+**Rule (revised)**: BG learning is **necessary** for any FG/BG-decomposed rendering pipeline — frozen BG produces uniformly broken results. But unfreezing BG alone is **not sufficient** for FG quality. The optimizer will still favor BG (which dominates the loss when BG occupies most pixels) and let FG remain underfit. Need additional structural intervention (balanced loss, hard masking, two-pass rendering).
 
-V5–V7 series spent 11+ experiments tuning FG side (count, motion bases, features) while BG was frozen at LR=1e-9. The "FG ghost" symptom was a downstream effect of broken BG, not insufficient FG capacity.
+**Evidence**: V8 single-variable isolation + killer test (2026-04-07):
 
-**Mechanism**: rendered = FG·mask + BG·(1−mask). If BG never updates from initialization noise:
-- BG term is persistent error → loss can never reach 0
-- FG over-corrects to compensate → ghosting artifacts
-- Adding more FG capacity (E2) wastes parameters without addressing root cause
+| Exp | Full PSNR | FG PSNR | BG PSNR | Verdict |
+|-----|----------:|--------:|--------:|---------|
+| V8a (BG frozen) | 7.07 | 7.07 | 7.09 | uniformly broken — both FG and BG fail |
+| E1 (BG unfrozen) | 22.06 | **11.01** | 24.94 | BG learned scene, FG still broken |
+| E2 (FG 18K, BG frozen) | 6.44 | not measured | not measured | worse — capacity to broken pipe |
+| E3 (bases 28, BG frozen) | 7.07 | not measured | not measured | worse — bases to broken pipe |
 
-**Apply**: For any alpha-composited rendering pipeline, treat BG learning rate as a critical hyperparameter, not a "set-and-forget" detail. Verify BG actually updates by checking loss on BG-only regions before assuming the FG side is the bottleneck.
+The +14.99 dB E1-vs-V8a Full PSNR improvement decomposed as **+17.85 dB BG, +3.94 dB FG**. The "breakthrough" was almost entirely BG learning the static scene. FG stayed barely above noise level.
+
+**Mechanism**: `rendered = FG·mask + BG·(1−mask)`. With BG frozen, the BG term is persistent noise → loss cannot decrease → uniformly broken. With BG unfrozen and standard L1 (BG-dominated):
+- BG learns the static scene aggressively (its gradient signal is 32× stronger than FG's)
+- BG also learns a temporal average of where the mouse passes (no constraint prevents this)
+- FG receives weak gradient (only 3% of pixels) → cannot specialize
+- Result: clean BG + ghost FG, high full PSNR (BG-dominated metric), low FG PSNR
+
+**Apply**:
+1. For any FG/BG-decomposed pipeline, **never frozen BG** (necessary condition)
+2. **Always report FG-only PSNR** alongside full PSNR (LESSONS §17)
+3. **Don't trust full PSNR** as the primary metric when FG occupies <10% of pixels
+4. **Architectural fix needed**: balanced loss, hard masking, or two-pass rendering — see V10 series
+5. The "FG ghost" symptom in V5–V7 had two contributing causes: (a) BG frozen prevented BG from being learned, AND (b) standard L1 prevented FG from being learned. (a) was fixed by E1 but (b) remained. V10a tests fixing (b).
 
 ### 14. Capacity ≠ Quality — Add Capacity Only After Fixing Bottlenecks
 

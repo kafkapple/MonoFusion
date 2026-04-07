@@ -371,6 +371,8 @@ def main():
     print(f"  w_feat={args.w_feat} (ramp {args.feat_ramp_start_epoch}-{args.feat_ramp_end_epoch}), "
           f"w_depth_reg={args.w_depth_reg}, w_rgb={loss_cfg.w_rgb}")
     print(f"  max_gaussians={args.max_gaussians}, num_bg={args.num_bg}")
+    print(f"  📊 Watch FG_PSNR (mouse area), not full PSNR (BG-dominated for small objects)")
+    print(f"     Healthy: FG ≈ BG (gap < 5 dB). Artifact: BG >> FG (gap > 5 dB ⚠️). See LESSONS §17.")
 
     from tqdm import tqdm
     import glob
@@ -487,13 +489,28 @@ def main():
 
         avg_loss = sum(step_losses) / len(step_losses) if step_losses else 0
         epoch_losses.append(avg_loss)
-        # Extract PSNR from last step's stats for console output
+        # Extract PSNR (full + FG/BG split) from last step's stats for console output.
+        # Watch FG_PSNR primarily — full PSNR is BG-dominated when FG occupies <10% of pixels
+        # (see audit AUDIT_REPORT_V8V9_ARTIFACT.md, LESSONS §17).
         psnr_str = ""
         if hasattr(trainer, 'stats') and trainer.stats:
-            psnr_val = trainer.stats.get("train/psnr")
-            if psnr_val is not None:
-                psnr_val = psnr_val.item() if hasattr(psnr_val, 'item') else psnr_val
-                psnr_str = f", PSNR={psnr_val:.2f}"
+            def _scalar(k):
+                v = trainer.stats.get(k)
+                if v is None:
+                    return None
+                return v.item() if hasattr(v, 'item') else v
+            full = _scalar("train/psnr")
+            fg = _scalar("train/fg_psnr")
+            bg = _scalar("train/bg_psnr")
+            parts = []
+            if full is not None:
+                parts.append(f"PSNR={full:.2f}")
+            if fg is not None and bg is not None:
+                gap = bg - fg
+                gap_warn = " ⚠️" if gap > 5.0 else ""
+                parts.append(f"FG={fg:.2f}/BG={bg:.2f} (gap={gap:+.2f}{gap_warn})")
+            if parts:
+                psnr_str = ", " + " | ".join(parts)
         print(f"\n  Epoch {epoch}: avg_loss={avg_loss:.6f} ({len(step_losses)} steps){psnr_str}")
 
         # Wandb epoch logging (FaceLift pattern: train/* namespace)

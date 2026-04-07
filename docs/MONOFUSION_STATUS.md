@@ -1,16 +1,28 @@
 # MonoFusion M5t2 PoC — Project Status
 
-> Last: 2026-04-07 | Phase: ✅ **V8 BREAKTHROUGH** — BG unfrozen → PSNR 25.80 dB
+> Last: 2026-04-07 PM | Phase: 🚨 **V8/V9 audit revealed PSNR artifact** → V10 architectural fix in progress
+
+## ⚠️ CRITICAL UPDATE (2026-04-07 PM)
+
+The V8 E1 result reported here as a "+16.73 dB breakthrough" was **invalidated by killer test**:
+
+| Exp | Full PSNR | **FG PSNR (mouse)** | BG PSNR | Gap |
+|-----|----------:|--------------------:|--------:|----:|
+| V8a (BG frozen) | 7.07 | 7.07 | 7.09 | uniform broken |
+| **E1 "breakthrough"** | **22.06** | **11.01** | **24.94** | **13.92 dB** |
+| V9c (cap=1M) | 22.00 | 10.84 | 24.97 | 14.13 dB |
+
+**The full PSNR jump was BG learning the static scene, not mouse reconstruction.** FG (the mouse — the entire purpose) stayed at PSNR ~11 (barely above noise) in all experiments. Full forensic analysis: [`~/results/MonoFusion/AUDIT_REPORT_V8V9_ARTIFACT.md`](../../results/MonoFusion/AUDIT_REPORT_V8V9_ARTIFACT.md). Root cause: standard L1 loss is BG-dominated when FG occupies <10% of pixels (LESSONS §17).
 
 ## 1. Current State
 
 | Item | Status | Detail |
 |------|--------|--------|
 | **Dataset** | **markerless_v7** | Raw data, per-camera intrinsic, 4cam×80f, 512×512 |
-| **🏆 Best model** | **E1 (V8 isolation)** | **PSNR 25.80 dB, loss 4.95** (BG unfrozen, 300ep) |
+| **Best model (FG metric)** | E1 / V9c (tied) | **FG PSNR ~11 dB** — mouse barely reconstructed in any experiment |
 | **Camera convention** | FIXED | metadata flag `camera_convention: w2c` |
-| **V8 isolation** | ✅ Complete | E1 = **+16.73 dB** vs V8a baseline. See [V8 results](experiments/mf_v8_results.md) |
-| **Next** | V9a (E1b: BG=50K unfrozen) | Scale up BG learning |
+| **V8 verdict** | 🚨 Metric artifact | Full PSNR was BG-dominated; FG never properly learned |
+| **Next** | V10a (rgb_loss_mode=balanced) | Architectural fix: balance L1 between FG/BG regions |
 | **Git** | origin=kafkapple, upstream=Z1hanW | Fork safety established |
 
 ### ⚠️ CRITICAL: Dataset Switch (2026-04-02)

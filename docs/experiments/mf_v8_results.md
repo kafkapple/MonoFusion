@@ -1,7 +1,14 @@
 # MonoFusion V8 — Single-Variable Isolation Results
 
-> **Date**: 2026-04-07 | **Status**: ✅ Complete (4 experiments, ~11h GPU time on A40)
-> **TL;DR**: BG frozen was the bottleneck. Unfreezing BG → **+16.7 dB PSNR** (9.07 → 25.80).
+> **Date**: 2026-04-07 | **Status**: 🚨 **Verdict revised by killer test (2026-04-07 PM)**
+>
+> ⚠️ **The "+16.7 dB breakthrough" reported below was a metric artifact**, not real reconstruction quality. Killer test on E1 best.ckpt revealed: **FG PSNR = 11.01 dB, BG PSNR = 24.94 dB, gap = 13.92 dB**. The full PSNR improvement was BG learning the static scene; the mouse (FG) stayed barely above noise level. The Full PSNR jump decomposed as +17.85 dB BG / +3.94 dB FG.
+>
+> **Root cause**: standard L1 loss is BG-dominated when FG occupies <10% of pixels. There was no gradient pressure to reconstruct the small FG region. See [`~/results/MonoFusion/AUDIT_REPORT_V8V9_ARTIFACT.md`](../../../results/MonoFusion/AUDIT_REPORT_V8V9_ARTIFACT.md).
+>
+> **What V8 actually proved**: BG frozen is necessary-but-broken (V8a is uniformly bad), but BG unfrozen alone is necessary-but-not-sufficient (E1 has good BG, broken FG). The "ghost FG" symptom in V5–V7 had TWO causes: BG frozen AND standard L1. E1 fixed cause #1 only.
+>
+> **Original "TL;DR"** (kept for historical context): BG frozen was the bottleneck. Unfreezing BG → +16.7 dB PSNR (9.07 → 25.80). — This statement is true in absolute number, but the improvement was BG learning, not the mouse reconstruction we wanted.
 
 ## Summary Table
 
