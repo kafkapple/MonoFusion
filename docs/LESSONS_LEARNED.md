@@ -162,7 +162,34 @@ except NameError:
 
 **Template**: `>1.0 dB improvement = significant, 0.3-1.0 = marginal, <0.3 = no effect`.
 
+### 13. BG Learning Is Required for FG Quality (V8 Breakthrough)
+
+**Rule**: When mask compositing renders both FG and BG, you MUST allow BG Gaussians to learn. Frozen BG poisons FG gradients.
+
+**Evidence**: V8 single-variable isolation (2026-04-07):
+- V8a (BG frozen): full PSNR 9.07 dB
+- E1 (BG unfrozen, only change): full PSNR **25.80 dB** = **+16.73 dB**
+- E2 (FG 18K, BG frozen): 6.44 dB — actually WORSE
+- E3 (bases 28, BG frozen): 7.07 dB — actually WORSE
+
+V5–V7 series spent 11+ experiments tuning FG side (count, motion bases, features) while BG was frozen at LR=1e-9. The "FG ghost" symptom was a downstream effect of broken BG, not insufficient FG capacity.
+
+**Mechanism**: rendered = FG·mask + BG·(1−mask). If BG never updates from initialization noise:
+- BG term is persistent error → loss can never reach 0
+- FG over-corrects to compensate → ghosting artifacts
+- Adding more FG capacity (E2) wastes parameters without addressing root cause
+
+**Apply**: For any alpha-composited rendering pipeline, treat BG learning rate as a critical hyperparameter, not a "set-and-forget" detail. Verify BG actually updates by checking loss on BG-only regions before assuming the FG side is the bottleneck.
+
+### 14. Capacity ≠ Quality — Add Capacity Only After Fixing Bottlenecks
+
+**Rule**: Don't scale up model capacity until you've identified and fixed the actual bottleneck.
+
+**Evidence**: V8 E2 added 13K Gaussians (5K → 18K) and got WORSE PSNR (9.07 → 6.44). E3 added 18 motion bases (10 → 28) and also got WORSE (9.07 → 7.07). Both added compute and memory without touching the BG bottleneck, and the extra parameters likely interfered with the broken pipeline.
+
+**Apply**: When tempted to "throw more capacity at it" — first verify your isolation experiment shows that capacity is the bound. If a single hyperparameter (E1 = 1 line change) gives 16 dB, capacity scaling is meaningless until that fix is applied.
+
 ---
 
-*MonoFusion M5t2 PoC | Lessons Learned | 2026-04-05*
-*Validated by 3-model MoA deliberation (Claude/Gemini/GPT) + 5-iteration audit*
+*MonoFusion M5t2 PoC | Lessons Learned | 2026-04-07*
+*Validated by 3-model MoA deliberation (Claude/Gemini/GPT) + 5-iteration audit + V8 isolation experiments*

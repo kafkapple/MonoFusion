@@ -18,7 +18,8 @@
 ### Experiments
 | File | Description |
 |------|-------------|
-| [experiments/mf_v8_isolation_plan.md](experiments/mf_v8_isolation_plan.md) | V8 single-variable isolation: V8a baseline + E1/E2/E3 |
+| [experiments/mf_v8_results.md](experiments/mf_v8_results.md) | 🏆 **V8 results: BG unfrozen → +16.7 dB PSNR breakthrough** |
+| [experiments/mf_v8_isolation_plan.md](experiments/mf_v8_isolation_plan.md) | V8 plan (pre-experiment): V8a baseline + E1/E2/E3 |
 | [experiments/mf_v5e_results.md](experiments/mf_v5e_results.md) | V5e first convergent run results |
 
 ### Architecture & Theory
@@ -33,7 +34,7 @@
 ## Quick Links
 
 - **Data**: `gpu03:/node_data/joon/data/monofusion/markerless_v7/` (CURRENT)
-- **Best model (V5j)**: `results_v5j/checkpoints/best.ckpt` (loss 2.06, DEPRECATED dataset)
+- **🏆 Best model (E1)**: `results_e1/checkpoints/best.ckpt` (loss 4.95, **PSNR 25.80 dB**)
 - **Scripts**: `mouse_m5t2/scripts/` | Training: `mouse_m5t2/train_m5t2.py`
 - **Conda**: `monofusion` (cu118, A40) — `CC=x86_64-conda-linux-gnu-gcc`
 - **Git**: origin=kafkapple/MonoFusion, upstream=Z1hanW/MonoFusion

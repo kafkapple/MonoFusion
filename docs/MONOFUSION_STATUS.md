@@ -1,16 +1,16 @@
 # MonoFusion M5t2 PoC — Project Status
 
-> Last: 2026-04-05 | Phase: V8 single-variable isolation experiments
+> Last: 2026-04-07 | Phase: ✅ **V8 BREAKTHROUGH** — BG unfrozen → PSNR 25.80 dB
 
 ## 1. Current State
 
 | Item | Status | Detail |
 |------|--------|--------|
 | **Dataset** | **markerless_v7** | Raw data, per-camera intrinsic, 4cam×80f, 512×512 |
-| **Best model** | V5j 300ep (m5t2_v5, DELETED) | loss 2.06, PSNR 13.36 — DEPRECATED dataset |
+| **🏆 Best model** | **E1 (V8 isolation)** | **PSNR 25.80 dB, loss 4.95** (BG unfrozen, 300ep) |
 | **Camera convention** | FIXED | metadata flag `camera_convention: w2c` |
-| **V7c** | Running (ep127/300) | All params changed, loss ~48 (unstable), GPU4 |
-| **Next** | V8a baseline → E1/E2/E3 isolation | See [V8 plan](experiments/mf_v8_isolation_plan.md) |
+| **V8 isolation** | ✅ Complete | E1 = **+16.73 dB** vs V8a baseline. See [V8 results](experiments/mf_v8_results.md) |
+| **Next** | V9a (E1b: BG=50K unfrozen) | Scale up BG learning |
 | **Git** | origin=kafkapple, upstream=Z1hanW | Fork safety established |
 
 ### ⚠️ CRITICAL: Dataset Switch (2026-04-02)
