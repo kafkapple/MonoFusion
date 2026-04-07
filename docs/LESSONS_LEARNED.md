@@ -230,7 +230,41 @@ The parameter name suggests "ceiling at N gaussians" but the behavior is "trigge
 
 This is a generalization of the "variable names lie" lesson from the camera convention bug (LESSONS §1-§3): **all parameter names are advisory, only the code is authoritative.**
 
+### 17. Full-Image PSNR Lies for Small-Object Reconstruction (Goodhart's Law)
+
+**Rule**: When the object of interest occupies < 10% of pixels, full-image PSNR is dominated by background quality and **cannot** distinguish "good FG + good BG" from "good BG + zero FG". Always report FG-only and BG-only PSNR separately.
+
+**Evidence**: V8/V9 killer test (2026-04-07):
+
+| Exp | Full PSNR | FG PSNR | BG PSNR | Gap |
+|-----|----------:|--------:|--------:|----:|
+| V8a | 7.07 | 7.07 | 7.09 | 0.02 (uniformly broken) |
+| **E1** | **22.06** | **11.01** | **24.94** | **13.92** |
+| **V9c** | **22.00** | **10.84** | **24.97** | **14.13** |
+
+E1's celebrated "+16.73 dB breakthrough" decomposed as **+17.85 dB BG, +3.94 dB FG**. The mouse (the entire purpose of the project) stayed at PSNR ~11 (barely visible), while the static scene reached PSNR ~25. Since BG occupies ~95% of pixels and FG only ~3-5%, the full-image PSNR was dominated by BG.
+
+The visual symptom: BG looks like a "blurry temporal average of the scene including faint mouse trails", FG looks like a "translucent ghost". The metric could not see this failure because it averaged over the whole image.
+
+**Math**: For 95% BG at PSNR 25 and 5% FG at PSNR 11:
+- BG MSE = 10^(-25/10) = 0.00316
+- FG MSE = 10^(-11/10) = 0.0794
+- Weighted MSE = 0.95 × 0.00316 + 0.05 × 0.0794 = 0.00697
+- Full PSNR = -10 log₁₀(0.00697) = **21.6 dB**
+
+This means even **PSNR 0 on the entire FG region** would only reduce full PSNR by 1-2 dB. The metric is structurally incapable of penalizing FG failures when FG is small.
+
+**Apply**:
+- For any task where the object of interest is < 10% of pixels:
+  1. Report FG-only PSNR, BG-only PSNR, and full PSNR separately
+  2. Define success criteria on FG PSNR primarily, not full PSNR
+  3. Visualize a few frames manually before trusting metric improvements
+  4. Run a "swap test": render frame t, evaluate against frame t+10. Real reconstruction should give much higher loss when frames are mismatched. If loss is flat, the model is producing a temporal average.
+- For MonoFusion specifically: full-image PSNR is the **wrong** primary metric. Use FG-only PSNR.
+
+**Goodhart's Law generalization**: "When a measure becomes a target, it ceases to be a good measure." The pre-defined V8 success criterion (>1 dB full PSNR = significant) was rigorous methodology in form but wrong in substance — it optimized for a measure that didn't capture what we cared about. Pre-defining criteria is necessary but not sufficient; the criteria themselves must be the right ones.
+
 ---
 
 *MonoFusion M5t2 PoC | Lessons Learned | 2026-04-07*
-*Validated by 3-model MoA deliberation (Claude/Gemini/GPT) + 5-iteration audit + V8/V9 isolation experiments*
+*Validated by 3-model MoA deliberation + V8/V9 isolation + killer test post-mortem*
