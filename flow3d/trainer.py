@@ -826,19 +826,27 @@ class Trainer:
 
 
 
-        rgb_loss = 0.8 * F.l1_loss(rendered_imgs, imgs) + 0.2 * (
-            1 - self.ssim(rendered_imgs.permute(0, 3, 1, 2), imgs.permute(0, 3, 1, 2))
-        )
-        #torch.Size([32, 288, 512, 3]) torch.Size([32, 288, 512, 3])
-        #torch.Size([9216, 512, 32]) torch.Size([32, 288, 512, 32])
-        #print(rendered_imgs.shape, imgs.shape)
-        #print(rendered_feats, feats)
-        ###
-        ### DEBUGing
-        ###
-        #log_images(rendered_imgs, imgs)
+        # RGB loss: standard (full-image L1) or balanced (FG/BG region balanced)
+        # Balanced mode addresses the small-object reconstruction artifact:
+        # for FG occupying ~3% of pixels, full L1 is BG-dominated and gives no
+        # incentive to reconstruct the mouse. Balanced loss makes FG region
+        # contribute 50% of L1 regardless of pixel count. SSIM stays full-image.
+        if getattr(self.losses_cfg, 'rgb_loss_mode', 'standard') == 'balanced':
+            fg_m = masks[..., None]                    # (B, H, W, 1) — FG mask × valid_masks (already applied at line 302)
+            bg_m = (1.0 - masks[..., None]) * valid_masks[..., None]  # BG within valid region
+            abs_diff = (rendered_imgs - imgs).abs()    # (B, H, W, 3)
+            fg_count = fg_m.sum().clamp_min(1.0) * 3   # × 3 channels
+            bg_count = bg_m.sum().clamp_min(1.0) * 3
+            l1_fg = (abs_diff * fg_m).sum() / fg_count
+            l1_bg = (abs_diff * bg_m).sum() / bg_count
+            balanced_l1 = 0.5 * l1_fg + 0.5 * l1_bg
+            ssim_loss = 1 - self.ssim(rendered_imgs.permute(0, 3, 1, 2), imgs.permute(0, 3, 1, 2))
+            rgb_loss = 0.8 * balanced_l1 + 0.2 * ssim_loss
+        else:
+            rgb_loss = 0.8 * F.l1_loss(rendered_imgs, imgs) + 0.2 * (
+                1 - self.ssim(rendered_imgs.permute(0, 3, 1, 2), imgs.permute(0, 3, 1, 2))
+            )
 
-        #print(rendered_imgs.shape)
         loss += rgb_loss * self.losses_cfg.w_rgb
 
 

@@ -178,6 +178,9 @@ def main():
     parser.add_argument("--bg_lr_config", type=str, default="gt",
                         choices=["gt", "frozen"],
                         help="BG LR config: 'gt'=BGLRGTConfig (paper spec), 'frozen'=BGLRConfig (~1e-9)")
+    parser.add_argument("--rgb_loss_mode", type=str, default="standard",
+                        choices=["standard", "balanced"],
+                        help="RGB loss: 'standard'=full-image L1 (BG-dominated), 'balanced'=FG/BG region-balanced L1 (fixes small-object artifact)")
     args = parser.parse_args()
 
     # Reproducibility: set seeds before any stochastic operation
@@ -212,6 +215,7 @@ def main():
                 "output_dir": args.output_dir,
                 "seed": args.seed,
                 "bg_lr_config": args.bg_lr_config,
+                "rgb_loss_mode": args.rgb_loss_mode,
                 "w_feat": args.w_feat,
                 "w_mask": args.w_mask,
                 "w_depth_reg": args.w_depth_reg,
@@ -314,7 +318,9 @@ def main():
     # - w_feat: 0.5 default with PCA 32d + L2 norm (paper 1.5, conservative start)
     # - w_depth_reg: 0.0 (paper default — nonzero was confirmed destabilizer)
     # - Gradual feat ramp replaces hard warmup (prevents gradient shock)
-    loss_cfg = LossesConfig(w_feat=args.w_feat, w_depth_reg=args.w_depth_reg, w_mask=args.w_mask)
+    loss_cfg = LossesConfig(w_feat=args.w_feat, w_depth_reg=args.w_depth_reg, w_mask=args.w_mask,
+                            rgb_loss_mode=args.rgb_loss_mode)
+    print(f"  RGB loss mode: {args.rgb_loss_mode}")
     # Compute steps/epoch from actual dataset: frames / batch_size
     n_frames = len(datasets[0].frame_names)
     batch_size = 4
