@@ -179,8 +179,8 @@ def main():
                         choices=["gt", "frozen"],
                         help="BG LR config: 'gt'=BGLRGTConfig (paper spec), 'frozen'=BGLRConfig (~1e-9)")
     parser.add_argument("--rgb_loss_mode", type=str, default="standard",
-                        choices=["standard", "balanced"],
-                        help="RGB loss: 'standard'=full-image L1 (BG-dominated), 'balanced'=FG/BG region-balanced L1 (fixes small-object artifact)")
+                        choices=["standard", "balanced", "two_pass"],
+                        help="RGB loss: 'standard'=full L1, 'balanced'=FG/BG region balanced, 'two_pass'=structural FG/BG separation via separate renders + GT mask compositing")
     args = parser.parse_args()
 
     # Reproducibility: set seeds before any stochastic operation

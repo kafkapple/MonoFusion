@@ -184,43 +184,66 @@ class SceneModel(nn.Module):
         return_depth: bool = False,
         return_mask: bool = False,
         fg_only: bool = False,
+        bg_only: bool = False,  # V10b: render BG Gaussians only (mirror of fg_only)
         filter_mask: torch.Tensor | None = None,
         feats_override: torch.Tensor | None = None,
     ) -> dict:
         device = w2cs.device
         C = w2cs.shape[0]
+        assert not (fg_only and bg_only), "fg_only and bg_only are mutually exclusive"
 
         W, H = img_wh
-        pose_fnc = self.compute_poses_fg if fg_only else self.compute_poses_all
-        N = self.num_fg_gaussians if fg_only else self.num_gaussians
+        if bg_only:
+            assert self.has_bg, "bg_only=True requires has_bg=True"
+            N = self.num_bg_gaussians
+        else:
+            pose_fnc = self.compute_poses_fg if fg_only else self.compute_poses_all
+            N = self.num_fg_gaussians if fg_only else self.num_gaussians
 
         if means is None or quats is None:
-            means, quats = pose_fnc(
-                torch.tensor([t], device=device) if t is not None else None
-            )
+            if bg_only:
+                # BG is static — no time-dependent pose
+                means = self.bg.params["means"][:, None]      # (N, 1, 3)
+                quats = self.bg.get_quats()[:, None]          # (N, 1, 4)
+            else:
+                means, quats = pose_fnc(
+                    torch.tensor([t], device=device) if t is not None else None
+                )
             means = means[:, 0]
             quats = quats[:, 0]
 
         if colors_override is None:
             if return_color:
-                colors_override = (
-                    self.fg.get_colors() if fg_only else self.get_colors_all()
-                )
+                if fg_only:
+                    colors_override = self.fg.get_colors()
+                elif bg_only:
+                    colors_override = self.bg.get_colors()
+                else:
+                    colors_override = self.get_colors_all()
             else:
                 colors_override = torch.zeros(N, 0, device=device)
 
         if feats_override is None:
             if return_feat:
-                feats_override = (
-                    self.fg.get_feats() if fg_only else self.get_feats_all()
-                )
+                if fg_only:
+                    feats_override = self.fg.get_feats()
+                elif bg_only:
+                    feats_override = self.bg.get_feats()
+                else:
+                    feats_override = self.get_feats_all()
             else:
                 feats_override = torch.zeros(N, 0, device=device)
-        #print(colors_override.shape, feats_override.shape)
         D = colors_override.shape[-1]
 
-        scales = self.fg.get_scales() if fg_only else self.get_scales_all()
-        opacities = self.fg.get_opacities() if fg_only else self.get_opacities_all()
+        if fg_only:
+            scales = self.fg.get_scales()
+            opacities = self.fg.get_opacities()
+        elif bg_only:
+            scales = self.bg.get_scales()
+            opacities = self.bg.get_opacities()
+        else:
+            scales = self.get_scales_all()
+            opacities = self.get_opacities_all()
 
         if isinstance(bg_color, float):
             bg_color = torch.full((C, D), bg_color, device=device)
@@ -230,7 +253,10 @@ class SceneModel(nn.Module):
         ds_expected = {"img": D}
 
         if return_mask:
-            if self.has_bg and not fg_only:
+            if bg_only:
+                # bg_only render: all gaussians are BG → mask attribute = 0
+                mask_values = torch.zeros((self.num_bg_gaussians, 1), device=device)
+            elif self.has_bg and not fg_only:
                 mask_values = torch.zeros((self.num_gaussians, 1), device=device)
                 mask_values[: self.num_fg_gaussians] = 1.0
             else:
@@ -241,7 +267,7 @@ class SceneModel(nn.Module):
 
         B = 0
 
-        if target_ts is not None:
+        if target_ts is not None and not bg_only:
             B = target_ts.shape[0]
             if target_means is None:
                 target_means, _ = pose_fnc(target_ts)  # [G, B, 3] 4 3 1

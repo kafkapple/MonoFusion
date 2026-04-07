@@ -826,22 +826,57 @@ class Trainer:
 
 
 
-        # RGB loss: standard (full-image L1) or balanced (FG/BG region balanced)
-        # Balanced mode addresses the small-object reconstruction artifact:
-        # for FG occupying ~3% of pixels, full L1 is BG-dominated and gives no
-        # incentive to reconstruct the mouse. Balanced loss makes FG region
-        # contribute 50% of L1 regardless of pixel count. SSIM stays full-image.
-        if getattr(self.losses_cfg, 'rgb_loss_mode', 'standard') == 'balanced':
-            fg_m = masks[..., None]                    # (B, H, W, 1) — FG mask × valid_masks (already applied at line 302)
-            bg_m = (1.0 - masks[..., None]) * valid_masks[..., None]  # BG within valid region
-            abs_diff = (rendered_imgs - imgs).abs()    # (B, H, W, 3)
-            fg_count = fg_m.sum().clamp_min(1.0) * 3   # × 3 channels
+        # RGB loss: 'standard' (full L1), 'balanced' (FG/BG region balance), or 'two_pass' (structural separation)
+        rgb_mode = getattr(self.losses_cfg, 'rgb_loss_mode', 'standard')
+        if rgb_mode == 'balanced':
+            fg_m = masks[..., None]                    # (B, H, W, 1) — FG mask × valid_masks
+            bg_m = (1.0 - masks[..., None]) * valid_masks[..., None]
+            abs_diff = (rendered_imgs - imgs).abs()
+            fg_count = fg_m.sum().clamp_min(1.0) * 3
             bg_count = bg_m.sum().clamp_min(1.0) * 3
             l1_fg = (abs_diff * fg_m).sum() / fg_count
             l1_bg = (abs_diff * bg_m).sum() / bg_count
             balanced_l1 = 0.5 * l1_fg + 0.5 * l1_bg
             ssim_loss = 1 - self.ssim(rendered_imgs.permute(0, 3, 1, 2), imgs.permute(0, 3, 1, 2))
             rgb_loss = 0.8 * balanced_l1 + 0.2 * ssim_loss
+        elif rgb_mode == 'two_pass':
+            # V10b: render FG-only and BG-only separately, then composite with GT mask.
+            # This structurally prevents BG Gaussians from affecting the mouse region
+            # (and vice versa). The rendered output is exactly what would be rendered
+            # if FG and BG were completely independent processes.
+            fg_imgs_list = []
+            bg_imgs_list = []
+            for i in range(B):
+                fg_out = self.model.render(
+                    ts[i].item(), w2cs[None, i], Ks[None, i], img_wh,
+                    bg_color=torch.ones(1, 3, device=device),
+                    return_color=True, return_feat=False, return_depth=False,
+                    return_mask=False, fg_only=True,
+                )
+                bg_out = self.model.render(
+                    ts[i].item(), w2cs[None, i], Ks[None, i], img_wh,
+                    bg_color=torch.ones(1, 3, device=device),
+                    return_color=True, return_feat=False, return_depth=False,
+                    return_mask=False, bg_only=True,
+                )
+                fg_imgs_list.append(fg_out["img"])
+                bg_imgs_list.append(bg_out["img"])
+            fg_imgs = torch.cat(fg_imgs_list, dim=0)  # (B, H, W, 3)
+            bg_imgs = torch.cat(bg_imgs_list, dim=0)
+            # Composite with GT mask: FG inside mouse region, BG outside
+            fg_m = masks[..., None]
+            bg_m = (1.0 - masks[..., None]) * valid_masks[..., None]
+            composited = fg_imgs * fg_m + bg_imgs * bg_m  # invalid pixels remain as 0
+            # L1 over the composited image vs GT, balanced by region size
+            abs_diff = (composited - imgs).abs()
+            fg_count = fg_m.sum().clamp_min(1.0) * 3
+            bg_count = bg_m.sum().clamp_min(1.0) * 3
+            l1_fg = (abs_diff * fg_m).sum() / fg_count
+            l1_bg = (abs_diff * bg_m).sum() / bg_count
+            two_pass_l1 = 0.5 * l1_fg + 0.5 * l1_bg
+            # SSIM on the composited image (full image)
+            ssim_loss = 1 - self.ssim(composited.permute(0, 3, 1, 2), imgs.permute(0, 3, 1, 2))
+            rgb_loss = 0.8 * two_pass_l1 + 0.2 * ssim_loss
         else:
             rgb_loss = 0.8 * F.l1_loss(rendered_imgs, imgs) + 0.2 * (
                 1 - self.ssim(rendered_imgs.permute(0, 3, 1, 2), imgs.permute(0, 3, 1, 2))
