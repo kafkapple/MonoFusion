@@ -189,7 +189,48 @@ V5–V7 series spent 11+ experiments tuning FG side (count, motion bases, featur
 
 **Apply**: When tempted to "throw more capacity at it" — first verify your isolation experiment shows that capacity is the bound. If a single hyperparameter (E1 = 1 line change) gives 16 dB, capacity scaling is meaningless until that fix is applied.
 
+### 15. Hidden Parameter Interactions Can Confound Single-Variable Isolation
+
+**Rule**: Before designing an experiment that changes initialization counts (FG/BG), trace the interaction with downstream caps (`max_gaussians`, `stop_densify_steps`, `opacity_reset`). A single overlooked cap can convert your single-variable isolation into a confounded multi-variable test.
+
+**Evidence**: V9a (2026-04-07) intended to test "BG capacity 5×" by setting `num_bg=50000` (was 10000), with all other params = E1. The actual behavior:
+- Init: 5K + 50K = 55K Gaussians
+- First densification: jumped to **940,831** Gaussians (V7c-instability regime)
+- `max_gaussians=100K` cap kicked in immediately, freezing the count
+- Loss spiked to 69 at ep1 (V7c signature)
+
+The intended single-variable change ("BG seed count") was not the actual variable. The actual variable was "first-densification-overshoot magnitude, gated by max_gaussians cap behavior."
+
+**Apply**: Before any experiment that changes a count parameter (FG/BG/bases), ask:
+1. What does the densifier do with this initial count after step 1?
+2. Does the result of step 1 cross any cap?
+3. Will the cap then change the optimization trajectory permanently?
+
+If yes to any → the experiment is confounded. Either fix the cap interaction or design a different test.
+
+### 16. Parameter Names Lie — Trace Actual Code Behavior
+
+**Rule**: Never assume a parameter does what its name suggests. Always read the code that uses the parameter before designing an experiment around it.
+
+**Evidence**: `max_gaussians` (2026-04-07) sounds like a hard ceiling. Actual behavior in `_densify_control_step`:
+```python
+if cfg.max_gaussians > 0 and self.model.num_gaussians >= cfg.max_gaussians:
+    return  # skip densification
+```
+
+This is a **"skip if already over"** trigger, not a hard cap. Once `num_gaussians` exceeds `max_gaussians`, densification stops forever. But a single densification step can produce arbitrary growth (E1 went 15K → 297K in epoch 0).
+
+Result: setting `max_gaussians=100K` and `max_gaussians=200K` produces the **same final count** (~297K), because the first densify step overshoots whichever value is set. V9b discovered this by aborting at ep5 when no "Skipping densification" log appeared until well after the cap was exceeded.
+
+The parameter name suggests "ceiling at N gaussians" but the behavior is "trigger to disable densification once N is exceeded once." These are completely different semantics.
+
+**Apply**:
+- For `max_gaussians`: it does NOT cap at the value; it triggers a permanent skip after first overshoot. To actually constrain capacity, modify the densifier itself (not this parameter).
+- For any newly encountered parameter: grep the codebase for its uses, read the surrounding 20 lines of code, and verify the actual semantics before designing a test.
+
+This is a generalization of the "variable names lie" lesson from the camera convention bug (LESSONS §1-§3): **all parameter names are advisory, only the code is authoritative.**
+
 ---
 
 *MonoFusion M5t2 PoC | Lessons Learned | 2026-04-07*
-*Validated by 3-model MoA deliberation (Claude/Gemini/GPT) + 5-iteration audit + V8 isolation experiments*
+*Validated by 3-model MoA deliberation (Claude/Gemini/GPT) + 5-iteration audit + V8/V9 isolation experiments*
