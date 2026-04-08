@@ -826,9 +826,19 @@ class Trainer:
 
 
 
-        # RGB loss: 'standard' (full L1), 'balanced' (FG/BG region balance), or 'two_pass' (structural separation)
+        # RGB loss: 'standard' (full L1), 'balanced' (FG/BG region balance), 'two_pass' (structural sep), or 'fg_only' (FG region only — for V11a no-BG isolation experiments)
         rgb_mode = getattr(self.losses_cfg, 'rgb_loss_mode', 'standard')
-        if rgb_mode == 'balanced':
+        if rgb_mode == 'fg_only':
+            # V11a: only supervise the FG region. Used when num_bg=0 (no BG Gaussians)
+            # to prevent the BG term from blowing up due to white-bg vs gt-bg mismatch.
+            fg_m = masks[..., None]
+            abs_diff = (rendered_imgs - imgs).abs()
+            fg_count = fg_m.sum().clamp_min(1.0) * 3
+            l1_fg = (abs_diff * fg_m).sum() / fg_count
+            # SSIM on full image is unstable here (BG = white) — use small weight or skip
+            ssim_loss = 1 - self.ssim(rendered_imgs.permute(0, 3, 1, 2), imgs.permute(0, 3, 1, 2))
+            rgb_loss = 0.95 * l1_fg + 0.05 * ssim_loss  # mostly L1 on FG
+        elif rgb_mode == 'balanced':
             fg_m = masks[..., None]                    # (B, H, W, 1) — FG mask × valid_masks
             bg_m = (1.0 - masks[..., None]) * valid_masks[..., None]
             abs_diff = (rendered_imgs - imgs).abs()
