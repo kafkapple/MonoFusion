@@ -111,14 +111,17 @@ def main():
     }
 
     # ─────────────────────────────────────────────────────────────────
-    # TEST 1: Frame-shift consistency
-    # Render frame t, evaluate against gt[t+k] for k in [0,1,5,10,20]
+    # TEST 1: Frame-shift consistency (FG-only — fixed 2026-04-07 PM)
+    # Render frame t, evaluate against gt[t+k] using FG mask of t_eval.
+    # Earlier version used full-image MSE which is BG-dominated and thus
+    # measures BG temporal change rather than FG temporal consistency.
+    # Now uses FG-only MSE so the metric actually reflects mouse motion.
     # ─────────────────────────────────────────────────────────────────
-    print("\n=== TEST 1: Frame-shift consistency ===")
-    print("If loss is flat across k → temporal average artifact (BAD)")
-    print("If loss(k=0) << loss(k=20) → real reconstruction (GOOD)\n")
+    print("\n=== TEST 1: Frame-shift consistency (FG-only) ===")
+    print("If loss is flat across k → FG temporal average artifact (BAD)")
+    print("If loss(k=0) << loss(k=20) → real FG reconstruction (GOOD)\n")
 
-    test_frames = [10, 30, 50]  # render at these t values
+    test_frames = [10, 30, 50]
     shifts = [0, 1, 5, 10, 20]
     cam_idx = 0  # cam00 has the best mouse coverage
 
@@ -128,31 +131,44 @@ def main():
             t_eval = t + k
             if t_eval >= n_frames:
                 continue
-            # Render at time t (uses model's t-th time pose)
             pred_rgb, _ = render_at(model, t, cam_idx, device, n_frames, tuple(args.img_wh))
             gt_rgb = load_gt_image(data_root, cam_names[cam_idx], t_eval)
-            mse = float(((pred_rgb - gt_rgb) ** 2).mean())
-            l1 = float(np.abs(pred_rgb - gt_rgb).mean())
-            psnr_val = psnr(pred_rgb, gt_rgb)
-            shift_results.append({"t_render": t, "k": k, "t_eval": t_eval, "mse": mse, "l1": l1, "psnr": psnr_val})
-            print(f"  t={t}, k={k:2d}, t_eval={t_eval:2d}: MSE={mse:.5f}, L1={l1:.5f}, PSNR={psnr_val:.2f}")
+            assert pred_rgb.shape == gt_rgb.shape, f"shape mismatch pred={pred_rgb.shape} gt={gt_rgb.shape}"
+            # Use FG mask of t_eval — we want to measure how well the rendered FG
+            # matches the actual mouse position at frame t_eval (not the BG which
+            # is mostly static in fixed-camera lab footage).
+            gt_mask_eval = load_gt_mask(data_root, cam_names[cam_idx], t_eval)  # (H,W) binary
+            # FG-only MSE
+            valid = gt_mask_eval > 0.5
+            n_fg = int(valid.sum())
+            if n_fg < 10:
+                continue  # too few FG pixels to be meaningful
+            diff = (pred_rgb - gt_rgb) ** 2
+            fg_mse = float((diff * gt_mask_eval[..., None]).sum() / (n_fg * 3))
+            fg_psnr = float(10 * np.log10(1.0 / max(fg_mse, 1e-10)))
+            shift_results.append({
+                "t_render": t, "k": k, "t_eval": t_eval,
+                "fg_mse": fg_mse, "fg_psnr": fg_psnr, "n_fg": n_fg,
+            })
+            print(f"  t={t}, k={k:2d}, t_eval={t_eval:2d}: FG_MSE={fg_mse:.5f}, FG_PSNR={fg_psnr:.2f}, n_fg={n_fg}")
 
-    # Compute ratio for diagnostic
+    # Compute ratio for diagnostic — higher = real reconstruction
     ratios = []
     for t in test_frames:
         same = next((r for r in shift_results if r["t_render"] == t and r["k"] == 0), None)
         far = next((r for r in shift_results if r["t_render"] == t and r["k"] == 20), None)
-        if same and far and same["mse"] > 0:
-            ratio = far["mse"] / same["mse"]
+        if same and far and same["fg_mse"] > 0:
+            ratio = far["fg_mse"] / same["fg_mse"]
             ratios.append(ratio)
-            print(f"  >> t={t}: MSE(k=20) / MSE(k=0) = {ratio:.3f}")
+            print(f"  >> t={t}: FG_MSE(k=20) / FG_MSE(k=0) = {ratio:.3f}")
     if ratios:
         avg_ratio = float(np.mean(ratios))
         verdict = "REAL (good)" if avg_ratio > 1.5 else ("ARTIFACT (bad)" if avg_ratio < 1.1 else "MIXED")
-        print(f"\n  >> Avg ratio: {avg_ratio:.3f} → Verdict: {verdict}")
-        results["tests"]["frame_shift"] = {
+        print(f"\n  >> Avg FG-only ratio: {avg_ratio:.3f} → Verdict: {verdict}")
+        results["tests"]["frame_shift_fg_only"] = {
             "shifts": shifts, "test_frames": test_frames, "results": shift_results,
             "avg_ratio": avg_ratio, "verdict": verdict,
+            "note": "fg-only MSE within gt_mask of t_eval (post-audit fix C1)",
         }
 
     # ─────────────────────────────────────────────────────────────────
@@ -172,6 +188,8 @@ def main():
                 pred_rgb, rendered_mask = render_at(model, t, c, device, n_frames, tuple(args.img_wh))
                 gt_rgb = load_gt_image(data_root, cam_names[c], t)
                 gt_mask = load_gt_mask(data_root, cam_names[c], t)
+                assert pred_rgb.shape == gt_rgb.shape, f"shape mismatch pred={pred_rgb.shape} gt={gt_rgb.shape}"
+                assert gt_mask.shape == gt_rgb.shape[:2], f"mask/img shape mismatch mask={gt_mask.shape} img={gt_rgb.shape}"
                 full = psnr(pred_rgb, gt_rgb)
                 fg = psnr(pred_rgb, gt_rgb, mask=gt_mask)
                 bg = psnr(pred_rgb, gt_rgb, mask=(1.0 - gt_mask))
